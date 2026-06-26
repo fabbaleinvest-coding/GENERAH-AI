@@ -35,5 +35,5 @@ export const VIDEO = {
   sectors: `${CDN}/hf_20260626_215004_78e51e2a-3e4c-411c-aa54-b724ca80dc00.mp4`,
   pricing: `${CDN}/hf_20260626_215018_23aaf981-8d16-48c6-9d43-4a5ec2dc15e9.mp4`,
   contact: `${CDN}/hf_20260626_215024_49fbc1be-fbdf-44d8-8f25-09b6d99c3bb2.mp4`,
-  platform: '__VIDEO_PLATFORM__',
+  platform: `${CDN}/hf_20260626_215515_98b7301d-cc2a-43dd-8e24-48d5e70c8fb9.mp4`,
 } as const;
