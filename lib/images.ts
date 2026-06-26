@@ -30,5 +30,5 @@ export type ImageKey = keyof typeof IMG;
 // Video generati con Higgsfield · Kling 3.0 (image-to-video, drone POV).
 // Il poster usa il primo frame (l'immagine hero) durante il caricamento.
 export const VIDEO = {
-  heroHome: '__HERO_VIDEO_URL__',
+  heroHome: `${CDN}/hf_20260626_204052_2d71936a-9e06-49f5-b16f-9ec18429aeef.mp4`,
 } as const;
