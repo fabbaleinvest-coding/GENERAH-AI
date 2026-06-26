@@ -3,6 +3,7 @@
 import { useLang, pick } from '@/lib/i18n';
 import { common } from '@/lib/content';
 import { platform } from '@/lib/content/platform';
+import { VIDEO } from '@/lib/images';
 import PageHero from '@/components/PageHero';
 import FeatureRow from '@/components/FeatureRow';
 import OverlayBand from '@/components/OverlayBand';
@@ -16,6 +17,7 @@ export default function PlatformPage() {
     <>
       <PageHero
         image={platform.hero.image}
+        video={VIDEO.platform}
         eyebrow={pick(lang, platform.hero.eyebrow)}
         title={pick(lang, platform.hero.title)}
         sub={pick(lang, platform.hero.sub)}

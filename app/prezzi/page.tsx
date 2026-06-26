@@ -2,6 +2,7 @@
 
 import { useLang, pick } from '@/lib/i18n';
 import { pricing } from '@/lib/content/pricing';
+import { VIDEO } from '@/lib/images';
 import PageHero from '@/components/PageHero';
 import { Container, Eyebrow } from '@/components/Primitives';
 import Reveal from '@/components/Reveal';
@@ -98,6 +99,7 @@ export default function PricingPage() {
     <>
       <PageHero
         image={pricing.hero.image}
+        video={VIDEO.pricing}
         eyebrow={pick(lang, pricing.hero.eyebrow)}
         title={pick(lang, pricing.hero.title)}
         sub={pick(lang, pricing.hero.sub)}

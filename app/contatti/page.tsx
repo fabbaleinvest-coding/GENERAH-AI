@@ -1,10 +1,11 @@
 'use client';
 
 import { useLang, pick } from '@/lib/i18n';
-import { IMG } from '@/lib/images';
+import { IMG, VIDEO } from '@/lib/images';
 import { Container, Eyebrow } from '@/components/Primitives';
 import Reveal from '@/components/Reveal';
 import ContactForm from '@/components/ContactForm';
+import BackgroundVideo from '@/components/BackgroundVideo';
 
 const copy = {
   eyebrow: { it: 'Contatti', en: 'Contact' },
@@ -32,15 +33,9 @@ export default function ContactPage() {
   const { lang } = useLang();
   return (
     <>
-      {/* Hero compatto con foto */}
+      {/* Hero compatto con video */}
       <section className="relative isolate overflow-hidden pt-32 pb-12 sm:pt-40 sm:pb-16">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={IMG.contactHub}
-          alt=""
-          aria-hidden
-          className="absolute inset-0 -z-10 h-full w-full object-cover"
-        />
+        <BackgroundVideo src={VIDEO.contact} poster={IMG.contactHub} />
         <div className="absolute inset-0 -z-10 bg-gradient-to-b from-ink/80 via-ink/88 to-ink" />
         <Container wide>
           <div className="max-w-2xl">

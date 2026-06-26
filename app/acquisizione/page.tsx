@@ -3,6 +3,7 @@
 import { useLang, pick } from '@/lib/i18n';
 import { common } from '@/lib/content';
 import { acquisition } from '@/lib/content/acquisition';
+import { VIDEO } from '@/lib/images';
 import PageHero from '@/components/PageHero';
 import FeatureRow from '@/components/FeatureRow';
 import OverlayBand from '@/components/OverlayBand';
@@ -38,6 +39,7 @@ export default function AcquisitionPage() {
     <>
       <PageHero
         image={acquisition.hero.image}
+        video={VIDEO.acquisition}
         eyebrow={pick(lang, acquisition.hero.eyebrow)}
         title={pick(lang, acquisition.hero.title)}
         sub={pick(lang, acquisition.hero.sub)}

@@ -31,4 +31,9 @@ export type ImageKey = keyof typeof IMG;
 // Il poster usa il primo frame (l'immagine hero) durante il caricamento.
 export const VIDEO = {
   heroHome: `${CDN}/hf_20260626_204052_2d71936a-9e06-49f5-b16f-9ec18429aeef.mp4`,
+  acquisition: `${CDN}/hf_20260626_214956_936ded7d-be04-4fd5-be5e-648b82e72757.mp4`,
+  sectors: `${CDN}/hf_20260626_215004_78e51e2a-3e4c-411c-aa54-b724ca80dc00.mp4`,
+  pricing: `${CDN}/hf_20260626_215018_23aaf981-8d16-48c6-9d43-4a5ec2dc15e9.mp4`,
+  contact: `${CDN}/hf_20260626_215024_49fbc1be-fbdf-44d8-8f25-09b6d99c3bb2.mp4`,
+  platform: '__VIDEO_PLATFORM__',
 } as const;

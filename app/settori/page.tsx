@@ -3,6 +3,7 @@
 import { useLang, pick } from '@/lib/i18n';
 import { common } from '@/lib/content';
 import { sectors } from '@/lib/content/sectors';
+import { VIDEO } from '@/lib/images';
 import PageHero from '@/components/PageHero';
 import OverlayBand from '@/components/OverlayBand';
 import { Container, Eyebrow } from '@/components/Primitives';
@@ -17,6 +18,7 @@ export default function SectorsPage() {
     <>
       <PageHero
         image={sectors.hero.image}
+        video={VIDEO.sectors}
         eyebrow={pick(lang, sectors.hero.eyebrow)}
         title={pick(lang, sectors.hero.title)}
         sub={pick(lang, sectors.hero.sub)}
