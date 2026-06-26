@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { useLang, pick } from '@/lib/i18n';
 import { common } from '@/lib/content';
 import { home } from '@/lib/content/home';
@@ -10,16 +11,41 @@ import CTA from './CTA';
 export default function HomeHero() {
   const { lang } = useLang();
   const hasVideo = VIDEO.heroHome && !VIDEO.heroHome.startsWith('__');
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    // Forza il muto a livello di proprietà (alcuni browser ignorano l'attributo)
+    // e avvia esplicitamente la riproduzione: è il modo affidabile per far
+    // partire un video di sfondo in autoplay.
+    v.muted = true;
+    v.defaultMuted = true;
+    const tryPlay = () => {
+      const p = v.play();
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    };
+    tryPlay();
+    v.addEventListener('canplay', tryPlay, { once: true });
+    v.addEventListener('loadeddata', tryPlay, { once: true });
+    return () => {
+      v.removeEventListener('canplay', tryPlay);
+      v.removeEventListener('loadeddata', tryPlay);
+    };
+  }, []);
+
   return (
     <section className="relative isolate flex min-h-[100svh] items-center overflow-hidden">
       {/* Background: cinematic drone-POV video with the hero photo as poster/fallback */}
       {hasVideo ? (
         <video
+          ref={videoRef}
           className="absolute inset-0 -z-20 h-full w-full object-cover"
           autoPlay
           loop
           muted
           playsInline
+          preload="auto"
           poster={home.hero.image}
           aria-hidden
         >
