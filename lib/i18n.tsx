@@ -20,13 +20,12 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [lang, setLangState] = useState<Lang>('it');
 
   useEffect(() => {
+    // Italiano è sempre la lingua predefinita. Si passa all'inglese solo se
+    // l'utente lo ha scelto esplicitamente in una sessione precedente.
     try {
       const saved = window.localStorage.getItem('generah-lang') as Lang | null;
-      if (saved === 'it' || saved === 'en') setLangState(saved);
-      else {
-        const nav = navigator.language?.toLowerCase() || '';
-        if (!nav.startsWith('it')) setLangState('en');
-      }
+      if (saved === 'en') setLangState('en');
+      else setLangState('it');
     } catch {
       /* no-op */
     }

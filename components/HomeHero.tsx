@@ -3,21 +3,37 @@
 import { useLang, pick } from '@/lib/i18n';
 import { common } from '@/lib/content';
 import { home } from '@/lib/content/home';
+import { VIDEO } from '@/lib/images';
 import { Container, Eyebrow } from './Primitives';
 import CTA from './CTA';
 
 export default function HomeHero() {
   const { lang } = useLang();
+  const hasVideo = VIDEO.heroHome && !VIDEO.heroHome.startsWith('__');
   return (
     <section className="relative isolate flex min-h-[100svh] items-center overflow-hidden">
-      {/* Background photo */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={home.hero.image}
-        alt=""
-        aria-hidden
-        className="absolute inset-0 -z-20 h-full w-full object-cover"
-      />
+      {/* Background: cinematic drone-POV video with the hero photo as poster/fallback */}
+      {hasVideo ? (
+        <video
+          className="absolute inset-0 -z-20 h-full w-full object-cover"
+          autoPlay
+          loop
+          muted
+          playsInline
+          poster={home.hero.image}
+          aria-hidden
+        >
+          <source src={VIDEO.heroHome} type="video/mp4" />
+        </video>
+      ) : (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img
+          src={home.hero.image}
+          alt=""
+          aria-hidden
+          className="absolute inset-0 -z-20 h-full w-full object-cover"
+        />
+      )}
       {/* Gradients for legibility */}
       <div className="absolute inset-0 -z-10 bg-gradient-to-t from-ink via-ink/65 to-ink/40" />
       <div className="absolute inset-0 -z-10 bg-gradient-to-r from-ink/90 via-ink/45 to-transparent" />
