@@ -209,6 +209,21 @@ export default function PricingPage() {
                 <Reveal key={r.plan} delay={i * 80}>
                   <div className="flex h-full flex-col rounded-3xl border border-teal-200/12 bg-ink-900/70 p-6">
                     <h3 className="font-display text-xl font-semibold text-bone">{r.plan}</h3>
+
+                    {/* Aumento di produttività — metrica separata */}
+                    <div className="mt-4 flex items-baseline gap-2 rounded-2xl bg-white/[0.04] px-4 py-3">
+                      <span className="font-display text-3xl font-semibold tracking-tight text-teal-300">
+                        {r.productivity.toLocaleString(lang === 'it' ? 'it-IT' : 'en-US', {
+                          minimumFractionDigits: 1,
+                          maximumFractionDigits: 1,
+                        })}
+                        ×
+                      </span>
+                      <span className="text-xs leading-snug text-mist">
+                        {pick(lang, pricing.savings.cols.productivity)}
+                      </span>
+                    </div>
+
                     <dl className="mt-4 space-y-3 text-sm">
                       <div className="flex items-center justify-between gap-2">
                         <dt className="text-mist">{pick(lang, pricing.savings.cols.annual)}</dt>

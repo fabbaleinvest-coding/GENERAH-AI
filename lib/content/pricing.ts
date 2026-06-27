@@ -190,32 +190,33 @@ export const pricing = {
   savings: {
     eyebrow: { it: 'Il confronto che cambia tutto', en: 'The comparison that changes everything' },
     title: {
-      it: 'Quanto risparmi rispetto a un dipendente',
-      en: 'How much you save vs an employee',
+      it: 'Quanto risparmi — e quanto produci in più',
+      en: 'How much you save — and how much more you produce',
     },
     sub: {
-      it: 'Un venditore commerciale costa in media 45.000 € l’anno (all-in) e lavora circa 1.720 ore. GENERAH AI è operativo 24 ore su 24, 7 giorni su 7 — 8.760 ore l’anno — e gestisce molti contatti in parallelo: una capacità operativa equivalente a oltre 5 persone.',
-      en: 'A sales rep costs on average €45,000 a year (all-in) and works about 1,720 hours. GENERAH AI runs 24/7 — 8,760 hours a year — and handles many contacts in parallel: an operational capacity equivalent to more than 5 people.',
+      it: 'Un venditore commerciale costa in media 45.000 € l’anno (all-in). GENERAH AI parte da una operatività 2,5 volte superiore sul tempo — perché lavora 24 ore su 24, 7 giorni su 7 — e cresce ulteriormente con i volumi inclusi nel pacchetto, gestendo molti contatti in parallelo.',
+      en: 'A sales rep costs on average €45,000 a year (all-in). GENERAH AI starts from 2.5× more operating time — because it works 24/7 — and scales further with the volumes included in the plan, handling many contacts in parallel.',
     },
     stats: [
       { value: '45.000 €', label: { it: 'Costo annuo di un dipendente (all-in)', en: 'Annual cost of one employee (all-in)' } },
-      { value: '8.760 h', label: { it: 'Ore operative di GENERAH AI / anno', en: 'GENERAH AI operating hours / year' } },
-      { value: '≈ 5×', label: { it: 'Produttività rispetto a un dipendente', en: 'Productivity vs one employee' } },
+      { value: '2,5×', label: { it: 'Operatività sul tempo (24/7/365)', en: 'Operating time (24/7/365)' } },
+      { value: 'fino a 9,3×', label: { it: 'Produttività con i volumi inclusi', en: 'Productivity with included volumes' } },
     ],
     cols: {
       plan: { it: 'Pacchetto', en: 'Plan' },
       annual: { it: 'Costo annuo GENERAH AI', en: 'GENERAH AI annual cost' },
+      productivity: { it: 'Aumento di produttività', en: 'Productivity increase' },
       vsOne: { it: 'Risparmio vs 1 dipendente', en: 'Saving vs 1 employee' },
       vsProductivity: { it: 'Risparmio a parità di produttività', en: 'Saving at equal productivity' },
     },
     rows: [
-      { plan: 'Starter', annual: 9480, vsOne: 35520, vsProductivity: 219706 },
-      { plan: 'Growth', annual: 22800, vsOne: 22200, vsProductivity: 206386 },
-      { plan: 'Premium', annual: 54000, vsOne: -9000, vsProductivity: 175186 },
+      { plan: 'Starter', annual: 9480, productivity: 2.5, vsOne: 35520, vsProductivity: 103020 },
+      { plan: 'Growth', annual: 22800, productivity: 4.8, vsOne: 22200, vsProductivity: 194164 },
+      { plan: 'Premium', annual: 54000, productivity: 9.3, vsOne: -9000, vsProductivity: 363857 },
     ],
     note: {
-      it: 'Prezzi IVA esclusa, a regime (il primo anno include il setup una tantum). Il “risparmio a parità di produttività” confronta GENERAH AI con il costo della forza-lavoro umana equivalente (≈ 229.186 € l’anno). Sulle fasce alte il canone può avvicinarsi o superare il costo di un singolo dipendente, ma l’operatività continua e i volumi gestiti restano quelli di un intero reparto.',
-      en: 'Prices exclude VAT, at steady state (the first year includes the one-time setup). The “saving at equal productivity” compares GENERAH AI with the cost of the equivalent human workforce (≈ €229,186 a year). On higher tiers the fee may approach or exceed the cost of a single employee, but the continuous operation and managed volumes remain those of a whole department.',
+      it: 'Prezzi IVA esclusa, a regime (il primo anno include il setup una tantum). L’aumento di produttività parte da 2,5× per la maggiore operatività sul tempo (24/7/365) e viene scalato in base all’aumento dei minuti inclusi nel pacchetto, pesato al 50% rispetto al pacchetto base. Il “risparmio a parità di produttività” confronta il costo annuo di GENERAH AI con quello della forza-lavoro umana equivalente (45.000 € × il fattore di produttività). Sulla fascia Premium il canone supera il costo di un singolo dipendente, ma l’operatività e i volumi gestiti equivalgono a quelli di un intero reparto.',
+      en: 'Prices exclude VAT, at steady state (the first year includes the one-time setup). The productivity increase starts at 2.5× for the greater operating time (24/7/365) and is scaled by the increase in included minutes per plan, weighted at 50% versus the base plan. The “saving at equal productivity” compares GENERAH AI’s annual cost with the equivalent human workforce (€45,000 × the productivity factor). On the Premium tier the fee exceeds the cost of a single employee, but the operation and managed volumes equal those of an entire department.',
     },
   },
 
