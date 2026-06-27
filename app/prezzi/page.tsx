@@ -168,6 +168,82 @@ export default function PricingPage() {
         </Container>
       </section>
 
+      {/* Savings vs employee */}
+      <section className="border-t border-teal-200/10 bg-ink-900/50 py-20 sm:py-28">
+        <Container wide>
+          <div className="max-w-2xl">
+            <Reveal>
+              <Eyebrow>{pick(lang, pricing.savings.eyebrow)}</Eyebrow>
+            </Reveal>
+            <Reveal delay={80}>
+              <h2 className="mt-5 font-display text-3xl font-semibold leading-tight tracking-tight text-bone sm:text-4xl">
+                {pick(lang, pricing.savings.title)}
+              </h2>
+            </Reveal>
+            <Reveal delay={140}>
+              <p className="mt-5 text-lg leading-relaxed text-mist">
+                {pick(lang, pricing.savings.sub)}
+              </p>
+            </Reveal>
+          </div>
+
+          {/* Key stats */}
+          <div className="mt-10 grid gap-4 sm:grid-cols-3">
+            {pricing.savings.stats.map((s, i) => (
+              <Reveal key={s.value} delay={i * 70}>
+                <div className="h-full rounded-2xl border border-teal-200/12 bg-ink-900/70 p-6 text-center">
+                  <div className="font-display text-4xl font-semibold tracking-tight text-teal-300">
+                    {s.value}
+                  </div>
+                  <div className="mt-2 text-sm leading-snug text-mist">{pick(lang, s.label)}</div>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+
+          {/* Per-plan saving cards */}
+          <div className="mt-6 grid gap-6 lg:grid-cols-3">
+            {pricing.savings.rows.map((r, i) => {
+              const positive = r.vsOne >= 0;
+              return (
+                <Reveal key={r.plan} delay={i * 80}>
+                  <div className="flex h-full flex-col rounded-3xl border border-teal-200/12 bg-ink-900/70 p-6">
+                    <h3 className="font-display text-xl font-semibold text-bone">{r.plan}</h3>
+                    <dl className="mt-4 space-y-3 text-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <dt className="text-mist">{pick(lang, pricing.savings.cols.annual)}</dt>
+                        <dd className="font-mono font-medium text-bone">{euro(r.annual, lang)}</dd>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <dt className="text-mist">{pick(lang, pricing.savings.cols.vsOne)}</dt>
+                        <dd className={`font-mono font-medium ${positive ? 'text-teal-300' : 'text-mist/70'}`}>
+                          {positive ? '+' : ''}{euro(r.vsOne, lang)}
+                        </dd>
+                      </div>
+                    </dl>
+                    <div className="mt-5 rounded-2xl bg-teal-500/[0.1] p-4 ring-1 ring-inset ring-teal-300/20">
+                      <div className="text-xs leading-snug text-mist">
+                        {pick(lang, pricing.savings.cols.vsProductivity)}
+                      </div>
+                      <div className="mt-1 font-display text-3xl font-semibold tracking-tight text-teal-200">
+                        {euro(r.vsProductivity, lang)}
+                        <span className="text-base font-normal text-mist">/{lang === 'it' ? 'anno' : 'yr'}</span>
+                      </div>
+                    </div>
+                  </div>
+                </Reveal>
+              );
+            })}
+          </div>
+
+          <Reveal delay={120}>
+            <p className="mt-8 max-w-3xl text-xs leading-relaxed text-mist/60">
+              {pick(lang, pricing.savings.note)}
+            </p>
+          </Reveal>
+        </Container>
+      </section>
+
       {/* FAQ */}
       <section className="py-20 sm:py-28">
         <Container className="max-w-3xl">

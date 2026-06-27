@@ -45,10 +45,10 @@ export const pricing = {
     {
       id: 'starter',
       name: 'Starter',
-      monthly: 690,
-      setup: 2000,
+      monthly: 790,
+      setup: 2500,
       blurb: { it: 'Per partire e non perdere più un contatto.', en: 'To start and never miss a contact again.' },
-      includes: { phone: 700, video: 0, marketing: 1000 },
+      includes: { phone: 700, video: 0, marketing: 500 },
       features: {
         it: [
           'Acquisizione multicanale e qualificazione automatica',
@@ -70,10 +70,10 @@ export const pricing = {
       id: 'growth',
       name: 'Growth',
       popular: true,
-      monthly: 1490,
-      setup: 3250,
+      monthly: 1900,
+      setup: 4000,
       blurb: { it: 'Il punto di equilibrio tra potenza e valore.', en: 'The sweet spot between power and value.' },
-      includes: { phone: 2000, video: 150, marketing: 2500 },
+      includes: { phone: 2000, video: 150, marketing: 1250 },
       features: {
         it: [
           'Tutto ciò che include Starter',
@@ -94,10 +94,10 @@ export const pricing = {
     {
       id: 'premium',
       name: 'Premium',
-      monthly: 2990,
-      setup: 5500,
+      monthly: 4500,
+      setup: 7000,
       blurb: { it: 'Acquisizione attiva e marketing autonomo.', en: 'Active acquisition and autonomous marketing.' },
-      includes: { phone: 4500, video: 500, marketing: 6000 },
+      includes: { phone: 4500, video: 500, marketing: 3000 },
       features: {
         it: [
           'Tutto ciò che include Growth',
@@ -121,7 +121,7 @@ export const pricing = {
       monthly: 5000,
       setup: 8000,
       blurb: { it: 'L’ecosistema completo, su misura della tua scala.', en: 'The full ecosystem, tailored to your scale.' },
-      includes: { phone: 8000, video: 1000, marketing: 15000 },
+      includes: { phone: 8000, video: 1000, marketing: 7500 },
       features: {
         it: [
           'Tutto ciò che include Premium',
@@ -158,34 +158,66 @@ export const pricing = {
       title: { it: 'Minuti telefono aggiuntivi', en: 'Additional phone minutes' },
       note: { it: 'Per chiamate e richiami oltre i minuti inclusi nel piano.', en: 'For calls and callbacks beyond the minutes included in your plan.' },
       rows: [
-        { qty: { it: 'A consumo', en: 'Pay-as-you-go' }, price: { it: '0,25 € / min', en: '€0.25 / min' }, unit: { it: 'singolo minuto', en: 'single minute' } },
-        { qty: { it: 'Pacco 500', en: '500 bundle' }, price: { it: '110 €', en: '€110' }, unit: { it: '0,22 € / min', en: '€0.22 / min' } },
-        { qty: { it: 'Pacco 1.000', en: '1,000 bundle' }, price: { it: '190 €', en: '€190' }, unit: { it: '0,19 € / min', en: '€0.19 / min' } },
-        { qty: { it: 'Pacco 5.000', en: '5,000 bundle' }, price: { it: '850 €', en: '€850' }, unit: { it: '0,17 € / min', en: '€0.17 / min' } },
+        { qty: { it: 'A consumo', en: 'Pay-as-you-go' }, price: { it: '0,35 € / min', en: '€0.35 / min' }, unit: { it: 'singolo minuto', en: 'single minute' } },
+        { qty: { it: 'Pacco 500', en: '500 bundle' }, price: { it: '154 €', en: '€154' }, unit: { it: '0,308 € / min', en: '€0.308 / min' } },
+        { qty: { it: 'Pacco 1.000', en: '1,000 bundle' }, price: { it: '266 €', en: '€266' }, unit: { it: '0,266 € / min', en: '€0.266 / min' } },
+        { qty: { it: 'Pacco 5.000', en: '5,000 bundle' }, price: { it: '1.190 €', en: '€1,190' }, unit: { it: '0,238 € / min', en: '€0.238 / min' } },
       ],
     },
     {
       title: { it: 'Minuti video aggiuntivi', en: 'Additional video minutes' },
       note: { it: 'Per video consulti con agente visivo oltre i minuti inclusi.', en: 'For visual-agent video consults beyond the included minutes.' },
       rows: [
-        { qty: { it: 'A consumo', en: 'Pay-as-you-go' }, price: { it: '0,50 € / min', en: '€0.50 / min' }, unit: { it: 'singolo minuto', en: 'single minute' } },
-        { qty: { it: 'Pacco 100', en: '100 bundle' }, price: { it: '45 €', en: '€45' }, unit: { it: '0,45 € / min', en: '€0.45 / min' } },
-        { qty: { it: 'Pacco 300', en: '300 bundle' }, price: { it: '120 €', en: '€120' }, unit: { it: '0,40 € / min', en: '€0.40 / min' } },
-        { qty: { it: 'Pacco 1.000', en: '1,000 bundle' }, price: { it: '370 €', en: '€370' }, unit: { it: '0,37 € / min', en: '€0.37 / min' } },
+        { qty: { it: 'A consumo', en: 'Pay-as-you-go' }, price: { it: '0,65 € / min', en: '€0.65 / min' }, unit: { it: 'singolo minuto', en: 'single minute' } },
+        { qty: { it: 'Pacco 100', en: '100 bundle' }, price: { it: '58,50 €', en: '€58.50' }, unit: { it: '0,585 € / min', en: '€0.585 / min' } },
+        { qty: { it: 'Pacco 300', en: '300 bundle' }, price: { it: '156 €', en: '€156' }, unit: { it: '0,52 € / min', en: '€0.52 / min' } },
+        { qty: { it: 'Pacco 1.000', en: '1,000 bundle' }, price: { it: '481 €', en: '€481' }, unit: { it: '0,481 € / min', en: '€0.481 / min' } },
       ],
     },
     {
       title: { it: 'Capacità marketing WhatsApp', en: 'WhatsApp marketing capacity' },
       note: { it: 'Sblocca il tetto di messaggi marketing a freddo del tuo piano.', en: 'Unlocks your plan’s cap on cold marketing messages.' },
       rows: [
-        { qty: { it: 'A consumo', en: 'Pay-as-you-go' }, price: { it: '0,15 € / msg', en: '€0.15 / msg' }, unit: { it: 'singolo messaggio', en: 'single message' } },
-        { qty: { it: 'Pacco 1.000', en: '1,000 bundle' }, price: { it: '149 €', en: '€149' }, unit: { it: '0,149 € / msg', en: '€0.149 / msg' } },
-        { qty: { it: 'Pacco 5.000', en: '5,000 bundle' }, price: { it: '690 €', en: '€690' }, unit: { it: '0,138 € / msg', en: '€0.138 / msg' } },
-        { qty: { it: 'Pacco 20.000', en: '20,000 bundle' }, price: { it: '2.490 €', en: '€2,490' }, unit: { it: '0,1245 € / msg', en: '€0.1245 / msg' } },
-        { qty: { it: 'Pacco 50.000', en: '50,000 bundle' }, price: { it: '5.490 €', en: '€5,490' }, unit: { it: '0,1098 € / msg', en: '€0.1098 / msg' } },
+        { qty: { it: 'A consumo', en: 'Pay-as-you-go' }, price: { it: '0,30 € / msg', en: '€0.30 / msg' }, unit: { it: 'singolo messaggio', en: 'single message' } },
+        { qty: { it: 'Pacco 1.000', en: '1,000 bundle' }, price: { it: '298 €', en: '€298' }, unit: { it: '0,298 € / msg', en: '€0.298 / msg' } },
+        { qty: { it: 'Pacco 5.000', en: '5,000 bundle' }, price: { it: '1.380 €', en: '€1,380' }, unit: { it: '0,276 € / msg', en: '€0.276 / msg' } },
+        { qty: { it: 'Pacco 20.000', en: '20,000 bundle' }, price: { it: '4.980 €', en: '€4,980' }, unit: { it: '0,249 € / msg', en: '€0.249 / msg' } },
+        { qty: { it: 'Pacco 50.000', en: '50,000 bundle' }, price: { it: '10.980 €', en: '€10,980' }, unit: { it: '0,2196 € / msg', en: '€0.2196 / msg' } },
       ],
     },
   ],
+
+  savings: {
+    eyebrow: { it: 'Il confronto che cambia tutto', en: 'The comparison that changes everything' },
+    title: {
+      it: 'Quanto risparmi rispetto a un dipendente',
+      en: 'How much you save vs an employee',
+    },
+    sub: {
+      it: 'Un venditore commerciale costa in media 45.000 € l’anno (all-in) e lavora circa 1.720 ore. GENERAH AI è operativo 24 ore su 24, 7 giorni su 7 — 8.760 ore l’anno — e gestisce molti contatti in parallelo: una capacità operativa equivalente a oltre 5 persone.',
+      en: 'A sales rep costs on average €45,000 a year (all-in) and works about 1,720 hours. GENERAH AI runs 24/7 — 8,760 hours a year — and handles many contacts in parallel: an operational capacity equivalent to more than 5 people.',
+    },
+    stats: [
+      { value: '45.000 €', label: { it: 'Costo annuo di un dipendente (all-in)', en: 'Annual cost of one employee (all-in)' } },
+      { value: '8.760 h', label: { it: 'Ore operative di GENERAH AI / anno', en: 'GENERAH AI operating hours / year' } },
+      { value: '≈ 5×', label: { it: 'Produttività rispetto a un dipendente', en: 'Productivity vs one employee' } },
+    ],
+    cols: {
+      plan: { it: 'Pacchetto', en: 'Plan' },
+      annual: { it: 'Costo annuo GENERAH AI', en: 'GENERAH AI annual cost' },
+      vsOne: { it: 'Risparmio vs 1 dipendente', en: 'Saving vs 1 employee' },
+      vsProductivity: { it: 'Risparmio a parità di produttività', en: 'Saving at equal productivity' },
+    },
+    rows: [
+      { plan: 'Starter', annual: 9480, vsOne: 35520, vsProductivity: 219706 },
+      { plan: 'Growth', annual: 22800, vsOne: 22200, vsProductivity: 206386 },
+      { plan: 'Premium', annual: 54000, vsOne: -9000, vsProductivity: 175186 },
+    ],
+    note: {
+      it: 'Prezzi IVA esclusa, a regime (il primo anno include il setup una tantum). Il “risparmio a parità di produttività” confronta GENERAH AI con il costo della forza-lavoro umana equivalente (≈ 229.186 € l’anno). Sulle fasce alte il canone può avvicinarsi o superare il costo di un singolo dipendente, ma l’operatività continua e i volumi gestiti restano quelli di un intero reparto.',
+      en: 'Prices exclude VAT, at steady state (the first year includes the one-time setup). The “saving at equal productivity” compares GENERAH AI with the cost of the equivalent human workforce (≈ €229,186 a year). On higher tiers the fee may approach or exceed the cost of a single employee, but the continuous operation and managed volumes remain those of a whole department.',
+    },
+  },
 
   faq: [
     {
