@@ -8,6 +8,7 @@ export const nav: { label: LS; href: string }[] = [
   { label: { it: 'Acquisizione', en: 'Acquisition' }, href: '/acquisizione' },
   { label: { it: 'Settori', en: 'Industries' }, href: '/settori' },
   { label: { it: 'Prezzi', en: 'Pricing' }, href: '/prezzi' },
+  { label: { it: 'FAQ', en: 'FAQ' }, href: '/faq' },
   { label: { it: 'Contatti', en: 'Contact' }, href: '/contatti' },
 ];
 
@@ -51,6 +52,7 @@ export const footer = {
       title: { it: 'Azienda', en: 'Company' },
       links: [
         { label: { it: 'Prezzi', en: 'Pricing' }, href: '/prezzi' },
+        { label: { it: 'FAQ', en: 'FAQ' }, href: '/faq' },
         { label: { it: 'Contatti', en: 'Contact' }, href: '/contatti' },
       ],
     },
