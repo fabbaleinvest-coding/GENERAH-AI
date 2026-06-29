@@ -148,6 +148,68 @@ const emptyMeters = (): Record<MeterKey, Meter> => ({
 
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
+// UUID valido per la chiave primaria della tabella leads.
+function leadId(): string {
+  try {
+    if (typeof crypto !== 'undefined' && (crypto as any).randomUUID) return (crypto as any).randomUUID();
+  } catch {
+    /* fallback sotto */
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+function leadToRow(userId: string, l: Lead) {
+  return {
+    id: l.id,
+    user_id: userId,
+    name: l.name,
+    phone: l.phone,
+    email: l.email,
+    source: l.source,
+    channel: l.channel,
+    interest: l.interest,
+    status: l.status,
+    score: l.score,
+    notes: l.notes,
+    created_at: new Date(l.createdAt).toISOString(),
+    last_touch: new Date(l.lastTouch).toISOString(),
+  };
+}
+
+function leadFromRow(r: any): Lead {
+  return {
+    id: r.id,
+    name: r.name ?? '',
+    phone: r.phone ?? '',
+    email: r.email ?? '',
+    source: r.source ?? '',
+    channel: r.channel ?? '',
+    interest: r.interest ?? '',
+    status: (r.status ?? 'nuovo') as LeadStatus,
+    score: Number(r.score ?? 0),
+    notes: r.notes ?? '',
+    createdAt: r.created_at ? Date.parse(r.created_at) : Date.now(),
+    lastTouch: r.last_touch ? Date.parse(r.last_touch) : Date.now(),
+  };
+}
+
+async function loadLeads(userId: string): Promise<Lead[]> {
+  try {
+    const { data } = await supabase
+      .from('leads')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+    return Array.isArray(data) ? data.map(leadFromRow) : [];
+  } catch {
+    return [];
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 //  Mappatura riga DB <-> oggetto User
 // ─────────────────────────────────────────────────────────────────────────
@@ -210,7 +272,6 @@ function userToRow(u: User) {
     video_consult_used: u.videoConsultUsed,
     onboarding_done: u.onboardingDone,
     campaigns: u.campaigns,
-    leads: u.leads,
     alerts: u.alerts,
   };
 }
@@ -276,7 +337,7 @@ function makeLead(source: string, channel: string): Lead {
   const l = LAST[Math.floor(Math.random() * LAST.length)];
   const name = `${f} ${l}`;
   return {
-    id: uid(),
+    id: leadId(),
     name,
     phone: `+39 3${Math.floor(10 + Math.random() * 89)} ${Math.floor(1000000 + Math.random() * 8999999)}`,
     email: `${f.toLowerCase()}.${l.toLowerCase().replace(' ', '')}@email.it`,
@@ -325,7 +386,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     // dal trigger un istante dopo il signUp.
     for (let attempt = 0; attempt < 5; attempt++) {
       const { data } = await supabase.from('profiles').select('*').eq('id', id).maybeSingle();
-      if (data) return rowToUser(data);
+      if (data) {
+        const u = rowToUser(data);
+        u.leads = await loadLeads(id);
+        return u;
+      }
       await new Promise((r) => setTimeout(r, 300));
     }
     return null;
@@ -516,16 +581,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const finishOnboarding = () => mutateUser((u) => ({ ...u, onboardingDone: true }));
 
   const launchCampaign: StoreCtx['launchCampaign'] = (c) => {
-    mutateUser((u) => {
-      const seedLeads = Array.from({ length: Math.floor(3 + Math.random() * 4) }, () =>
-        makeLead(c.name, 'Meta Ads')
-      );
-      const ads = u.meters.ads;
+    const u = userRef.current;
+    if (!u) return;
+    const seedLeads = Array.from({ length: Math.floor(3 + Math.random() * 4) }, () =>
+      makeLead(c.name, 'Meta Ads')
+    );
+    if (seedLeads.length) {
+      void supabase.from('leads').insert(seedLeads.map((l) => leadToRow(u.id, l)));
+    }
+    mutateUser((cur) => {
+      const ads = cur.meters.ads;
       const usedAds = Math.min(ads.total, ads.used + 1);
       const remainingPct = ads.total > 0 ? (ads.total - usedAds) / ads.total : 1;
-      let alerts = u.alerts;
-      if (ads.total > 0 && remainingPct <= ALERT_THRESHOLD && !u.alerts.some((a) => a.meter === 'ads' && !a.read)) {
-        alerts = [{ id: uid(), meter: 'ads', remainingPct, createdAt: Date.now(), read: false }, ...u.alerts];
+      let alerts = cur.alerts;
+      if (ads.total > 0 && remainingPct <= ALERT_THRESHOLD && !cur.alerts.some((a) => a.meter === 'ads' && !a.read)) {
+        alerts = [{ id: uid(), meter: 'ads', remainingPct, createdAt: Date.now(), read: false }, ...cur.alerts];
       }
       const campaign: Campaign = {
         ...c,
@@ -536,29 +606,47 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         createdAt: Date.now(),
       };
       return {
-        ...u,
-        campaigns: [campaign, ...u.campaigns],
-        leads: [...seedLeads, ...u.leads],
-        meters: { ...u.meters, ads: { total: ads.total, used: usedAds } },
+        ...cur,
+        campaigns: [campaign, ...cur.campaigns],
+        leads: [...seedLeads, ...cur.leads],
+        meters: { ...cur.meters, ads: { total: ads.total, used: usedAds } },
         alerts,
       };
     });
   };
 
-  const addLead: StoreCtx['addLead'] = (l) =>
-    mutateUser((u) => ({
-      ...u,
-      leads: [{ ...l, id: uid(), createdAt: Date.now(), lastTouch: Date.now() }, ...u.leads],
-    }));
+  const addLead: StoreCtx['addLead'] = (l) => {
+    const u = userRef.current;
+    if (!u) return;
+    const lead: Lead = { ...l, id: leadId(), createdAt: Date.now(), lastTouch: Date.now() };
+    setUser((prev) => (prev ? { ...prev, leads: [lead, ...prev.leads] } : prev));
+    void supabase.from('leads').insert(leadToRow(u.id, lead));
+  };
 
-  const updateLead: StoreCtx['updateLead'] = (id, patch) =>
-    mutateUser((u) => ({
-      ...u,
-      leads: u.leads.map((l) => (l.id === id ? { ...l, ...patch, lastTouch: Date.now() } : l)),
-    }));
+  const updateLead: StoreCtx['updateLead'] = (id, patch) => {
+    const u = userRef.current;
+    if (!u) return;
+    const now = Date.now();
+    setUser((prev) =>
+      prev
+        ? { ...prev, leads: prev.leads.map((l) => (l.id === id ? { ...l, ...patch, lastTouch: now } : l)) }
+        : prev
+    );
+    const dbPatch: Record<string, any> = { last_touch: new Date(now).toISOString() };
+    (['name', 'phone', 'email', 'source', 'channel', 'interest', 'status', 'score', 'notes'] as const).forEach(
+      (k) => {
+        if (k in patch) dbPatch[k] = (patch as any)[k];
+      }
+    );
+    void supabase.from('leads').update(dbPatch).eq('id', id).eq('user_id', u.id);
+  };
 
-  const removeLead: StoreCtx['removeLead'] = (id) =>
-    mutateUser((u) => ({ ...u, leads: u.leads.filter((l) => l.id !== id) }));
+  const removeLead: StoreCtx['removeLead'] = (id) => {
+    const u = userRef.current;
+    if (!u) return;
+    setUser((prev) => (prev ? { ...prev, leads: prev.leads.filter((l) => l.id !== id) } : prev));
+    void supabase.from('leads').delete().eq('id', id).eq('user_id', u.id);
+  };
 
   const markAlertsRead = () =>
     mutateUser((u) => ({ ...u, alerts: u.alerts.map((a) => ({ ...a, read: true })) }));
@@ -570,6 +658,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (paths.length) {
       void supabase.storage.from(KB_BUCKET).remove(paths).catch(() => {});
     }
+    void supabase.from('leads').delete().eq('user_id', u.id);
     const fresh: User = {
       ...u,
       password: '',
