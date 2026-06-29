@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, Fragment } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import {
@@ -153,11 +153,15 @@ function Overview({ onTopUp, setTab }: { onTopUp: (m: MeterKey) => void; setTab:
 
 // ════════════════════════════ LEADS / CRM ════════════════════════════
 function LeadsView() {
-  const { user, updateLead, removeLead, addLead, consume } = useStore();
+  const { user, updateLead, removeLead, addLead, enrichLead, consume } = useStore();
   const [filter, setFilter] = useState<LeadStatus | 'tutti'>('tutti');
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ name: '', phone: '', email: '', interest: 'Informazioni' });
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [errById, setErrById] = useState<Record<string, string>>({});
+  const [copied, setCopied] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     if (!user) return [];
@@ -190,9 +194,37 @@ function LeadsView() {
       status: 'nuovo',
       score: Math.floor(40 + Math.random() * 50),
       notes: '',
+      aiSummary: '',
+      nextAction: '',
+      aiDraft: null,
     });
     setForm({ name: '', phone: '', email: '', interest: 'Informazioni' });
     setAdding(false);
+  }
+
+  async function runAi(l: Lead) {
+    setBusyId(l.id);
+    setErrById((m) => ({ ...m, [l.id]: '' }));
+    const r = await enrichLead(l.id);
+    setBusyId((cur) => (cur === l.id ? null : cur));
+    if (!r.ok) setErrById((m) => ({ ...m, [l.id]: r.error || 'Errore imprevisto' }));
+  }
+  function toggleAi(l: Lead) {
+    if (openId === l.id) {
+      setOpenId(null);
+      return;
+    }
+    setOpenId(l.id);
+    if (!l.aiSummary && !l.aiDraft && busyId !== l.id) void runAi(l);
+  }
+  function copyText(text: string, tag: string) {
+    try {
+      navigator.clipboard?.writeText(text);
+      setCopied(tag);
+      setTimeout(() => setCopied((c) => (c === tag ? null : c)), 1500);
+    } catch {
+      /* clipboard non disponibile */
+    }
   }
 
   const counts = (s: LeadStatus) => user.leads.filter((l) => l.status === s).length;
@@ -250,7 +282,8 @@ function LeadsView() {
             </thead>
             <tbody>
               {filtered.map((l, i) => (
-                <tr key={l.id} className={cx('border-b border-white/5', i % 2 === 0 ? 'bg-ink-900/30' : '')}>
+                <Fragment key={l.id}>
+                <tr className={cx('border-b border-white/5', i % 2 === 0 ? 'bg-ink-900/30' : '')}>
                   <td className="px-4 py-3">
                     <p className="text-[0.9rem] font-medium text-bone">{l.name}</p>
                     <p className="text-[0.74rem] text-mist/60">{l.email || l.phone}</p>
@@ -275,6 +308,13 @@ function LeadsView() {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1.5">
+                      <button onClick={() => toggleAi(l)} title="Qualifica con l'AI (Opus 4.8)" className={cx('rounded-lg border p-2 transition', openId === l.id ? 'border-teal-300/60 bg-teal-400/10 text-teal-200' : l.aiSummary || l.aiDraft ? 'border-teal-300/40 text-teal-200' : 'border-white/10 text-mist hover:border-teal-300/40 hover:text-teal-200')}>
+                        {busyId === l.id ? (
+                          <svg viewBox="0 0 24 24" className="h-4 w-4 animate-spin" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M21 12a9 9 0 1 1-6.2-8.6" /></svg>
+                        ) : (
+                          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4L12 3z" /></svg>
+                        )}
+                      </button>
                       <button onClick={() => call(l)} title="Chiama con l'agente vocale" className="rounded-lg border border-white/10 p-2 text-mist transition hover:border-teal-300/40 hover:text-teal-200">
                         <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3-8.6A2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.2a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z" /></svg>
                       </button>
@@ -287,6 +327,75 @@ function LeadsView() {
                     </div>
                   </td>
                 </tr>
+                {openId === l.id && (
+                  <tr className="border-b border-white/5 bg-ink-900/40">
+                    <td colSpan={5} className="px-4 pb-5 pt-1">
+                      {busyId === l.id ? (
+                        <div className="flex items-center gap-3 py-3 text-[0.85rem] text-mist">
+                          <svg viewBox="0 0 24 24" className="h-4 w-4 animate-spin" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M21 12a9 9 0 1 1-6.2-8.6" /></svg>
+                          Claude Opus 4.8 sta qualificando il lead…
+                        </div>
+                      ) : errById[l.id] ? (
+                        <div className="rounded-xl border border-amber-soft/30 bg-amber-soft/5 p-4 text-[0.85rem]">
+                          {errById[l.id].includes('ANTHROPIC_API_KEY') ? (
+                            <>
+                              <p className="font-medium text-amber-soft">Configurazione richiesta</p>
+                              <p className="mt-1 text-mist">Imposta <code className="rounded bg-white/10 px-1 text-bone">ANTHROPIC_API_KEY</code> nelle variabili d&apos;ambiente per attivare la qualifica AI.</p>
+                            </>
+                          ) : (
+                            <p className="text-amber-soft">{errById[l.id]}</p>
+                          )}
+                          <Button variant="ghost" size="sm" className="mt-3" onClick={() => runAi(l)}>Riprova</Button>
+                        </div>
+                      ) : l.aiSummary || l.aiDraft ? (
+                        <div className="space-y-4 pt-2">
+                          <div className="flex flex-wrap items-center gap-3">
+                            <span className="font-mono text-[0.62rem] uppercase tracking-[0.16em] text-teal-200/70">Qualifica AI · Opus 4.8</span>
+                            <span className={cx('rounded-full px-2.5 py-0.5 text-[0.74rem] font-medium', l.score >= 75 ? 'bg-teal-400/15 text-teal-200' : l.score >= 55 ? 'bg-amber-soft/15 text-amber-soft' : 'bg-white/10 text-mist')}>Conversione {l.score}%</span>
+                            <button onClick={() => runAi(l)} className="ml-auto text-[0.76rem] text-mist underline-offset-2 hover:text-teal-200 hover:underline">Rigenera</button>
+                          </div>
+                          {l.aiSummary && (
+                            <div>
+                              <p className="text-[0.68rem] uppercase tracking-wide text-mist/50">Sintesi</p>
+                              <p className="mt-1 text-[0.9rem] text-bone/90">{l.aiSummary}</p>
+                            </div>
+                          )}
+                          {l.nextAction && (
+                            <div>
+                              <p className="text-[0.68rem] uppercase tracking-wide text-mist/50">Prossima azione</p>
+                              <p className="mt-1 text-[0.9rem] text-bone/90">{l.nextAction}</p>
+                            </div>
+                          )}
+                          {l.aiDraft && (
+                            <div className="grid gap-3 md:grid-cols-2">
+                              <div className="rounded-xl border border-white/10 bg-ink-900/50 p-4">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-[0.68rem] uppercase tracking-wide text-mist/50">Email di follow-up</p>
+                                  <button onClick={() => copyText(`${l.aiDraft!.emailSubject}\n\n${l.aiDraft!.emailBody}`, `mail-${l.id}`)} className="text-[0.72rem] text-teal-200/80 hover:text-teal-200">{copied === `mail-${l.id}` ? 'Copiato ✓' : 'Copia'}</button>
+                                </div>
+                                <p className="mt-2 text-[0.84rem] font-medium text-bone">{l.aiDraft.emailSubject}</p>
+                                <p className="mt-1 whitespace-pre-wrap text-[0.82rem] text-mist">{l.aiDraft.emailBody}</p>
+                              </div>
+                              <div className="rounded-xl border border-white/10 bg-ink-900/50 p-4">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-[0.68rem] uppercase tracking-wide text-mist/50">Messaggio WhatsApp</p>
+                                  <button onClick={() => copyText(l.aiDraft!.whatsapp, `wa-${l.id}`)} className="text-[0.72rem] text-teal-200/80 hover:text-teal-200">{copied === `wa-${l.id}` ? 'Copiato ✓' : 'Copia'}</button>
+                                </div>
+                                <p className="mt-2 whitespace-pre-wrap text-[0.82rem] text-mist">{l.aiDraft.whatsapp}</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-3 py-3 text-[0.85rem] text-mist">
+                          <Button size="sm" onClick={() => runAi(l)}>Qualifica con l&apos;AI</Button>
+                          <span>Claude Opus 4.8 analizza il lead e prepara il follow-up.</span>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
             </tbody>
           </table>

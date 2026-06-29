@@ -49,6 +49,12 @@ export type LeadStatus =
   | 'cliente'
   | 'perso';
 
+export interface AiDraft {
+  emailSubject: string;
+  emailBody: string;
+  whatsapp: string;
+}
+
 export interface Lead {
   id: string;
   name: string;
@@ -60,6 +66,10 @@ export interface Lead {
   status: LeadStatus;
   score: number;
   notes: string;
+  // qualifica AI (Claude Opus 4.8)
+  aiSummary: string;
+  nextAction: string;
+  aiDraft: AiDraft | null;
   createdAt: number;
   lastTouch: number;
 }
@@ -175,6 +185,9 @@ function leadToRow(userId: string, l: Lead) {
     status: l.status,
     score: l.score,
     notes: l.notes,
+    ai_summary: l.aiSummary,
+    next_action: l.nextAction,
+    ai_draft: l.aiDraft,
     created_at: new Date(l.createdAt).toISOString(),
     last_touch: new Date(l.lastTouch).toISOString(),
   };
@@ -192,6 +205,9 @@ function leadFromRow(r: any): Lead {
     status: (r.status ?? 'nuovo') as LeadStatus,
     score: Number(r.score ?? 0),
     notes: r.notes ?? '',
+    aiSummary: r.ai_summary ?? '',
+    nextAction: r.next_action ?? '',
+    aiDraft: (r.ai_draft ?? null) as AiDraft | null,
     createdAt: r.created_at ? Date.parse(r.created_at) : Date.now(),
     lastTouch: r.last_touch ? Date.parse(r.last_touch) : Date.now(),
   };
@@ -318,6 +334,7 @@ interface StoreCtx {
   launchCampaign: (c: Omit<Campaign, 'id' | 'createdAt' | 'leads' | 'spend' | 'status'>) => void;
   addLead: (l: Omit<Lead, 'id' | 'createdAt' | 'lastTouch'>) => void;
   updateLead: (id: string, patch: Partial<Lead>) => void;
+  enrichLead: (id: string) => Promise<{ ok: boolean; error?: string }>;
   removeLead: (id: string) => void;
   markAlertsRead: () => void;
   resetAll: () => void;
@@ -347,6 +364,9 @@ function makeLead(source: string, channel: string): Lead {
     status: 'nuovo',
     score: Math.floor(40 + Math.random() * 60),
     notes: '',
+    aiSummary: '',
+    nextAction: '',
+    aiDraft: null,
     createdAt: Date.now(),
     lastTouch: Date.now(),
   };
@@ -638,7 +658,56 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (k in patch) dbPatch[k] = (patch as any)[k];
       }
     );
+    if ('aiSummary' in patch) dbPatch.ai_summary = patch.aiSummary;
+    if ('nextAction' in patch) dbPatch.next_action = patch.nextAction;
+    if ('aiDraft' in patch) dbPatch.ai_draft = patch.aiDraft;
     void supabase.from('leads').update(dbPatch).eq('id', id).eq('user_id', u.id);
+  };
+
+  const enrichLead: StoreCtx['enrichLead'] = async (id) => {
+    const u = userRef.current;
+    if (!u) return { ok: false, error: 'Utente non disponibile' };
+    const lead = u.leads.find((l) => l.id === id);
+    if (!lead) return { ok: false, error: 'Lead non trovato' };
+    try {
+      const res = await fetch('/api/crm/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lead: {
+            name: lead.name,
+            email: lead.email,
+            phone: lead.phone,
+            channel: lead.channel,
+            interest: lead.interest,
+            status: lead.status,
+            notes: lead.notes,
+          },
+          nome: u.nome,
+          settore: u.settore,
+          kbFiles: u.kb.map((f) => f.name),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { ok: false, error: String(data?.error || `HTTP ${res.status}`) };
+      const draft: AiDraft | null =
+        data?.draft && typeof data.draft === 'object'
+          ? {
+              emailSubject: String(data.draft.emailSubject || ''),
+              emailBody: String(data.draft.emailBody || ''),
+              whatsapp: String(data.draft.whatsapp || ''),
+            }
+          : null;
+      updateLead(id, {
+        aiSummary: String(data?.summary || ''),
+        nextAction: String(data?.nextAction || ''),
+        aiDraft: draft,
+        score: typeof data?.score === 'number' ? data.score : lead.score,
+      });
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
   };
 
   const removeLead: StoreCtx['removeLead'] = (id) => {
@@ -708,6 +777,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     launchCampaign,
     addLead,
     updateLead,
+    enrichLead,
     removeLead,
     markAlertsRead,
     resetAll,
