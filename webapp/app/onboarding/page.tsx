@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/lib/store';
-import type { SocialPostDraft } from '@/lib/store';
+import type { SocialPostDraft, CampaignBrief } from '@/lib/store';
 import { IMG } from '@/lib/images';
 import { Guard } from '@/components/Guard';
 import { AppShell } from '@/components/AppShell';
@@ -237,7 +237,7 @@ function IntegrationTag({ children }: { children: React.ReactNode }) {
 }
 
 function OnboardingInner() {
-  const { user, addKb, removeKb, connectSocial, scheduleSocialPosts, generateSocialPlan, skipSocial, connectMeta, skipPhase2, launchCampaign, useVideoConsult, finishOnboarding } = useStore();
+  const { user, addKb, removeKb, connectSocial, scheduleSocialPosts, generateSocialPlan, skipSocial, connectMeta, skipPhase2, launchCampaign, generateCampaignBrief, useVideoConsult, finishOnboarding } = useStore();
   const router = useRouter();
   const [step, setStep] = useState<Step>('kb');
   const fileRef = useRef<HTMLInputElement>(null);
@@ -262,6 +262,11 @@ function OnboardingInner() {
 
   // config campagna
   const creative = useMemo(() => buildCreative(user?.settore ?? '', user?.nome ?? ''), [user?.settore, user?.nome]);
+  const [aiBrief, setAiBrief] = useState<CampaignBrief | null>(null);
+  const effConcept = aiBrief?.videoConcept || creative.concept;
+  const effCaption = aiBrief?.postText || creative.caption;
+  const effInterests = aiBrief?.interests?.length ? aiBrief.interests : creative.interests;
+  const effAudience = aiBrief?.audienceDescription || creative.audience;
   const [budget, setBudget] = useState(30);
   const [geo, setGeo] = useState('Milano + 25 km');
   const [ageRange, setAgeRange] = useState('25-54');
@@ -315,12 +320,13 @@ function OnboardingInner() {
     e.target.value = '';
   }
 
-  function runDirector() {
+  async function runDirector() {
     setRunning(true);
-    setTimeout(() => {
-      setRunning(false);
-      setDirectorDone(true);
-    }, 2200);
+    const r = await generateCampaignBrief({ objective: 'Lead generation', budgetDaily: budget, geo, ageRange });
+    if (r.ok && r.brief) setAiBrief(r.brief);
+    // fallback: se l'AI non è disponibile (chiave mancante), resta il concept integrato
+    setRunning(false);
+    setDirectorDone(true);
   }
   function runVideo() {
     setRunning(true);
@@ -353,16 +359,17 @@ function OnboardingInner() {
     setRunning(true);
     setTimeout(() => {
       launchCampaign({
-        name: `Lead-gen ${user!.settore.split('·')[0].trim()} · ${geo}`,
+        name: aiBrief?.campaignName || `Lead-gen ${user!.settore.split('·')[0].trim()} · ${geo}`,
         objective: 'Lead generation',
         dailyBudget: budget,
         geo,
-        audience: creative.audience,
+        audience: effAudience,
         ageRange,
-        interests: creative.interests,
-        postText: creative.caption,
-        videoConcept: creative.concept,
+        interests: effInterests,
+        postText: effCaption,
+        videoConcept: effConcept,
         lookalike: contacts >= 100,
+        brief: aiBrief ?? undefined,
       });
       setRunning(false);
       setLaunched(true);
@@ -711,11 +718,31 @@ function OnboardingInner() {
             <div className="mt-6 space-y-4">
               <div className="rounded-2xl border border-teal-300/25 bg-teal-400/[0.04] p-5">
                 <p className="font-mono text-[0.64rem] uppercase tracking-[0.16em] text-teal-300/80">Concept · 2 scene da 15s consecutive</p>
-                <p className="mt-2 leading-relaxed text-bone/90">{creative.concept}</p>
+                <p className="mt-2 leading-relaxed text-bone/90">{effConcept}</p>
               </div>
+              {aiBrief && aiBrief.scenes.length > 0 && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {aiBrief.scenes.map((sc) => (
+                    <div key={sc.n} className="rounded-2xl border border-white/8 bg-ink/40 p-4">
+                      <p className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-teal-200/80">Scena {sc.n} · {sc.durationSec}s</p>
+                      <p className="mt-2 text-[0.84rem] leading-relaxed text-bone/90">{sc.visual}</p>
+                      <p className="mt-2 text-[0.78rem] text-mist"><span className="text-mist/55">Voce (Roman):</span> {sc.voiceover}</p>
+                      {sc.onScreenText && (
+                        <p className="mt-1 text-[0.78rem] text-mist"><span className="text-mist/55">Testo a schermo:</span> {sc.onScreenText}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {aiBrief?.music && (
+                <div className="rounded-2xl border border-white/8 bg-ink/40 p-4">
+                  <p className="font-mono text-[0.6rem] uppercase tracking-[0.14em] text-mist/70">Musica</p>
+                  <p className="mt-1.5 text-[0.84rem] leading-relaxed text-bone/90">{aiBrief.music}</p>
+                </div>
+              )}
               <div className="rounded-2xl border border-white/8 bg-ink/40 p-5">
                 <p className="font-mono text-[0.64rem] uppercase tracking-[0.16em] text-mist/70">Caption proposta</p>
-                <p className="mt-2 leading-relaxed text-bone/90">{creative.caption}</p>
+                <p className="mt-2 leading-relaxed text-bone/90">{effCaption}</p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <IntegrationTag>Higgsfield · Kling 3.0 Turbo</IntegrationTag>
@@ -901,7 +928,7 @@ function OnboardingInner() {
               </div>
             </Photo>
             <div className="p-3.5">
-              <p className="text-[0.86rem] leading-relaxed text-bone/90">{creative.caption}</p>
+              <p className="text-[0.86rem] leading-relaxed text-bone/90">{effCaption}</p>
               <button className="mt-3 w-full rounded-lg bg-teal-400 py-2 text-[0.82rem] font-semibold text-ink-900">Scopri di più</button>
             </div>
           </div>
@@ -964,7 +991,7 @@ function OnboardingInner() {
           <div className="mt-5 rounded-2xl border border-white/8 bg-ink/40 p-5">
             <p className="font-mono text-[0.64rem] uppercase tracking-[0.16em] text-teal-300/80">Pubblico costruito dall AI</p>
             <div className="mt-2.5 flex flex-wrap gap-2">
-              {creative.interests.map((it) => (
+              {effInterests.map((it) => (
                 <span key={it} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[0.8rem] text-mist">{it}</span>
               ))}
             </div>

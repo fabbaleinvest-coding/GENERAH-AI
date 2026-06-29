@@ -98,6 +98,31 @@ export const LeadStatusOrder: LeadStatus[] = [
   'perso',
 ];
 
+export interface CampaignScene {
+  n: number;
+  durationSec: number;
+  visual: string;
+  voiceover: string;
+  onScreenText: string;
+}
+
+export interface CampaignBrief {
+  campaignName: string;
+  objective: string;
+  audienceDescription: string;
+  ageRange: string;
+  gender: string;
+  interests: string[];
+  geoSuggestion: string;
+  postText: string;
+  headline: string;
+  cta: string;
+  leadFormFields: string[];
+  music: string;
+  videoConcept: string;
+  scenes: CampaignScene[];
+}
+
 export interface Campaign {
   id: string;
   name: string;
@@ -111,6 +136,7 @@ export interface Campaign {
   postText: string;
   videoConcept: string;
   lookalike: boolean;
+  brief?: CampaignBrief; // brief AI completo (strato 1)
   leads: number;
   spend: number;
   createdAt: number;
@@ -347,6 +373,12 @@ interface StoreCtx {
   useVideoConsult: () => void;
   finishOnboarding: () => void;
   launchCampaign: (c: Omit<Campaign, 'id' | 'createdAt' | 'leads' | 'spend' | 'status'>) => void;
+  generateCampaignBrief: (input?: {
+    objective?: string;
+    budgetDaily?: number;
+    geo?: string;
+    ageRange?: string;
+  }) => Promise<{ ok: boolean; brief?: CampaignBrief; error?: string }>;
   addLead: (l: Omit<Lead, 'id' | 'createdAt' | 'lastTouch'>) => void;
   updateLead: (id: string, patch: Partial<Lead>) => void;
   enrichLead: (id: string) => Promise<{ ok: boolean; error?: string }>;
@@ -847,6 +879,36 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     void supabase.from('leads').delete().eq('id', id).eq('user_id', u.id);
   };
 
+  const generateCampaignBrief: StoreCtx['generateCampaignBrief'] = async (input) => {
+    const u = userRef.current;
+    if (!u) return { ok: false, error: 'Utente non disponibile' };
+    try {
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const res = await fetch('/api/ads/brief', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          nome: u.nome,
+          settore: u.settore,
+          kbFiles: u.kb.map((f) => f.name),
+          objective: input?.objective || 'Lead generation',
+          budgetDaily: input?.budgetDaily,
+          geo: input?.geo,
+          ageRange: input?.ageRange,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, error: String(data?.error || `HTTP ${res.status}`) };
+      if (!data?.brief) return { ok: false, error: 'Brief non disponibile' };
+      return { ok: true, brief: data.brief as CampaignBrief };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  };
+
   const markAlertsRead = () =>
     mutateUser((u) => ({ ...u, alerts: u.alerts.map((a) => ({ ...a, read: true })) }));
 
@@ -908,6 +970,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     useVideoConsult,
     finishOnboarding,
     launchCampaign,
+    generateCampaignBrief,
     addLead,
     updateLead,
     enrichLead,
