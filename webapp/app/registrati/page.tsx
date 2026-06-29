@@ -52,16 +52,15 @@ export default function RegistratiPage() {
     if (password !== conferma) return setError('Le due password non coincidono.');
 
     setLoading(true);
-    // piccola attesa simulata per dare corpo all'esperienza demo
-    setTimeout(() => {
-      const res = register({ nome, cognome, email, cellulare, settore, password });
+    (async () => {
+      const res = await register({ nome, cognome, email, cellulare, settore, password });
       if (!res.ok) {
         setLoading(false);
         setError(res.error ?? 'Registrazione non riuscita.');
         return;
       }
       router.replace('/piani');
-    }, 650);
+    })();
   }
 
   return (

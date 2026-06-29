@@ -300,7 +300,7 @@ function OnboardingInner() {
 
   function onPickKb(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
-    if (files.length) addKb(files.map((f) => ({ name: f.name, size: f.size, kind: f.type || 'file' })));
+    if (files.length) addKb(files);
     e.target.value = '';
   }
 
@@ -384,7 +384,7 @@ function OnboardingInner() {
             onDrop={(e) => {
               e.preventDefault();
               const files = Array.from(e.dataTransfer.files);
-              if (files.length) addKb(files.map((f) => ({ name: f.name, size: f.size, kind: f.type || 'file' })));
+              if (files.length) addKb(files);
             }}
             className="mt-6 cursor-pointer rounded-2xl border border-dashed border-white/20 bg-ink/40 px-6 py-10 text-center transition hover:border-teal-300/50 hover:bg-teal-400/[0.03]"
           >

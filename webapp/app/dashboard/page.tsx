@@ -480,7 +480,7 @@ function KbView() {
 
   function pick(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
-    if (files.length) addKb(files.map((f) => ({ name: f.name, size: f.size, kind: f.type || 'file' })));
+    if (files.length) addKb(files);
     e.target.value = '';
   }
 

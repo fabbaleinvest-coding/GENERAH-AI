@@ -27,15 +27,15 @@ export default function AccediPage() {
     e.preventDefault();
     setError(null);
     setLoading(true);
-    setTimeout(() => {
-      const res = login(email, password);
+    (async () => {
+      const res = await login(email, password);
       if (!res.ok) {
         setLoading(false);
         setError(res.error ?? 'Accesso non riuscito.');
         return;
       }
       // il redirect avviene nell'effect quando lo stato si aggiorna
-    }, 450);
+    })();
   }
 
   return (

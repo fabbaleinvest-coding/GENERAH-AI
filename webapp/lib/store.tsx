@@ -4,20 +4,23 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
-  useCallback,
   ReactNode,
 } from 'react';
 import {
   PlanId,
-  PLANS,
   MeterKey,
-  METER_ORDER,
   priceWithDiscount,
 } from './plans';
+import { supabase, KB_BUCKET } from './supabase';
 
 // ─────────────────────────────────────────────────────────────────────────
-//  Tipi
+//  GENERAH IT · store reale su Supabase (DB + Auth + Storage).
+//  L'oggetto User e l'interfaccia StoreCtx restano identici alla versione
+//  demo: i componenti non cambiano. La persistenza però è su Postgres
+//  (tabella public.profiles, RLS owner-only), l'autenticazione su Supabase
+//  Auth (email+password) e i file della knowledge base su Supabase Storage.
 // ─────────────────────────────────────────────────────────────────────────
 export interface KbFile {
   id: string;
@@ -25,15 +28,16 @@ export interface KbFile {
   size: number;
   kind: string;
   addedAt: number;
+  path?: string; // percorso su Supabase Storage (bucket kb)
 }
 
 export interface SocialPost {
   id: string;
-  week: string; // es. "Settimana 1"
-  format: string; // es. "Educativo"
+  week: string;
+  format: string;
   title: string;
   bullets: string[];
-  scheduledFor: number; // timestamp di pubblicazione programmata
+  scheduledFor: number;
   status: 'programmato';
 }
 
@@ -107,7 +111,7 @@ export interface User {
   email: string;
   cellulare: string;
   settore: string;
-  password: string;
+  password: string; // non usata in modalità Supabase (la password vive in Auth)
   createdAt: number;
   // piano
   plan: PlanId | null;
@@ -135,13 +139,6 @@ export interface User {
   alerts: AlertItem[];
 }
 
-interface DB {
-  users: Record<string, User>; // chiave: email lowercase
-  session: string | null; // email loggata
-}
-
-const KEY = 'generah_db_v1';
-
 const emptyMeters = (): Record<MeterKey, Meter> => ({
   phone: { total: 0, used: 0 },
   video: { total: 0, used: 0 },
@@ -149,23 +146,83 @@ const emptyMeters = (): Record<MeterKey, Meter> => ({
   ads: { total: 0, used: 0 },
 });
 
-function loadDB(): DB {
-  if (typeof window === 'undefined') return { users: {}, session: null };
-  try {
-    const raw = window.localStorage.getItem(KEY);
-    if (!raw) return { users: {}, session: null };
-    return JSON.parse(raw) as DB;
-  } catch {
-    return { users: {}, session: null };
-  }
-}
-
-function saveDB(db: DB) {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(KEY, JSON.stringify(db));
-}
-
 const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+
+// ─────────────────────────────────────────────────────────────────────────
+//  Mappatura riga DB <-> oggetto User
+// ─────────────────────────────────────────────────────────────────────────
+function rowToUser(r: any): User {
+  return {
+    id: r.id,
+    nome: r.nome ?? '',
+    cognome: r.cognome ?? '',
+    email: r.email ?? '',
+    cellulare: r.cellulare ?? '',
+    settore: r.settore ?? '',
+    password: '',
+    createdAt: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
+    plan: (r.plan ?? null) as PlanId | null,
+    planMode: (r.plan_mode ?? null) as 'demo' | 'paid' | null,
+    discountCode: r.discount_code ?? null,
+    featurePlan: (r.feature_plan ?? null) as PlanId | null,
+    paidCanone: Number(r.paid_canone ?? 0),
+    paidSetup: Number(r.paid_setup ?? 0),
+    meters: (r.meters ?? emptyMeters()) as Record<MeterKey, Meter>,
+    kb: Array.isArray(r.kb) ? (r.kb as KbFile[]) : [],
+    igConnected: !!r.ig_connected,
+    fbConnected: !!r.fb_connected,
+    metricoolConnected: !!r.metricool_connected,
+    socialPosts: Array.isArray(r.social_posts) ? (r.social_posts as SocialPost[]) : [],
+    socialSkipped: !!r.social_skipped,
+    metaConnected: !!r.meta_connected,
+    phase2Skipped: !!r.phase2_skipped,
+    videoConsultUsed: !!r.video_consult_used,
+    onboardingDone: !!r.onboarding_done,
+    campaigns: Array.isArray(r.campaigns) ? (r.campaigns as Campaign[]) : [],
+    leads: Array.isArray(r.leads) ? (r.leads as Lead[]) : [],
+    alerts: Array.isArray(r.alerts) ? (r.alerts as AlertItem[]) : [],
+  };
+}
+
+function userToRow(u: User) {
+  return {
+    id: u.id,
+    email: u.email,
+    nome: u.nome,
+    cognome: u.cognome,
+    cellulare: u.cellulare,
+    settore: u.settore,
+    plan: u.plan,
+    plan_mode: u.planMode,
+    discount_code: u.discountCode,
+    feature_plan: u.featurePlan,
+    paid_canone: u.paidCanone,
+    paid_setup: u.paidSetup,
+    meters: u.meters,
+    kb: u.kb,
+    ig_connected: u.igConnected,
+    fb_connected: u.fbConnected,
+    metricool_connected: u.metricoolConnected,
+    social_posts: u.socialPosts,
+    social_skipped: u.socialSkipped,
+    meta_connected: u.metaConnected,
+    phase2_skipped: u.phase2Skipped,
+    video_consult_used: u.videoConsultUsed,
+    onboarding_done: u.onboardingDone,
+    campaigns: u.campaigns,
+    leads: u.leads,
+    alerts: u.alerts,
+  };
+}
+
+function mapAuthError(msg?: string): string {
+  const m = (msg || '').toLowerCase();
+  if (/invalid login credentials/.test(m)) return 'Email o password non corretti.';
+  if (/email not confirmed/.test(m)) return 'Account non ancora confermato.';
+  if (/rate limit/.test(m)) return 'Troppi tentativi, riprova tra poco.';
+  if (/password should be at least/.test(m)) return 'La password deve avere almeno 6 caratteri.';
+  return msg || 'Operazione non riuscita.';
+}
 
 // ─────────────────────────────────────────────────────────────────────────
 //  Context
@@ -180,17 +237,13 @@ interface StoreCtx {
     cellulare: string;
     settore: string;
     password: string;
-  }) => { ok: boolean; error?: string };
-  login: (email: string, password: string) => { ok: boolean; error?: string };
+  }) => Promise<{ ok: boolean; error?: string }>;
+  login: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
-  activatePlan: (
-    planId: PlanId,
-    code: string | null,
-    mode: 'demo' | 'paid'
-  ) => void;
+  activatePlan: (planId: PlanId, code: string | null, mode: 'demo' | 'paid') => void;
   consume: (meter: MeterKey, amount: number) => void;
   topUp: (meter: MeterKey, qty: number) => void;
-  addKb: (files: { name: string; size: number; kind: string }[]) => void;
+  addKb: (files: File[]) => void;
   removeKb: (id: string) => void;
   connectSocial: (network: 'ig' | 'fb' | 'metricool') => void;
   scheduleSocialPosts: (
@@ -213,7 +266,7 @@ const Ctx = createContext<StoreCtx | null>(null);
 
 const ALERT_THRESHOLD = 0.1; // 10%
 
-// genera lead demo coerenti col settore
+// genera lead demo coerenti col settore (per le campagne)
 const FIRST = ['Marco', 'Giulia', 'Luca', 'Sara', 'Andrea', 'Elena', 'Paolo', 'Chiara', 'Davide', 'Martina', 'Simone', 'Federica'];
 const LAST = ['Rossi', 'Bianchi', 'Ferrari', 'Russo', 'Esposito', 'Romano', 'Colombo', 'Ricci', 'Marino', 'Greco', 'Conti', 'De Luca'];
 const INTERESTS = ['Preventivo', 'Informazioni', 'Appuntamento', 'Catalogo', 'Disponibilità', 'Consulenza'];
@@ -239,86 +292,117 @@ function makeLead(source: string, channel: string): Lead {
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [db, setDb] = useState<DB>({ users: {}, session: null });
+  const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
 
+  // riferimento sempre aggiornato all'utente (per le funzioni async)
+  const userRef = useRef<User | null>(null);
   useEffect(() => {
-    setDb(loadDB());
-    setReady(true);
-  }, []);
+    userRef.current = user;
+  }, [user]);
 
-  const persist = useCallback((next: DB) => {
-    setDb(next);
-    saveDB(next);
-  }, []);
+  // Persistenza su DB (upsert della riga profilo). Best-effort in background.
+  async function persist(u: User) {
+    try {
+      await supabase.from('profiles').upsert(userToRow(u));
+    } catch {
+      /* la UI ha già lo stato locale; il prossimo cambiamento riproverà */
+    }
+  }
 
-  const user = db.session ? db.users[db.session] ?? null : null;
+  // Aggiorna lo stato locale (sincrono per la UI) e salva su DB in background.
+  function mutateUser(fn: (u: User) => User) {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const next = fn(prev);
+      void persist(next);
+      return next;
+    });
+  }
 
-  const mutateUser = useCallback(
-    (fn: (u: User) => User) => {
-      setDb((prev) => {
-        if (!prev.session) return prev;
-        const cur = prev.users[prev.session];
-        if (!cur) return prev;
-        const nextUser = fn(cur);
-        const next: DB = {
-          ...prev,
-          users: { ...prev.users, [prev.session]: nextUser },
-        };
-        saveDB(next);
-        return next;
-      });
-    },
-    []
-  );
+  async function loadProfile(id: string): Promise<User | null> {
+    // Piccolo retry: alla primissima registrazione la riga profilo è creata
+    // dal trigger un istante dopo il signUp.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const { data } = await supabase.from('profiles').select('*').eq('id', id).maybeSingle();
+      if (data) return rowToUser(data);
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    return null;
+  }
 
-  const register: StoreCtx['register'] = (d) => {
-    const email = d.email.trim().toLowerCase();
-    if (db.users[email]) return { ok: false, error: 'Esiste già un account con questa email.' };
-    const u: User = {
-      id: uid(),
-      nome: d.nome.trim(),
-      cognome: d.cognome.trim(),
-      email,
-      cellulare: d.cellulare.trim(),
-      settore: d.settore.trim(),
-      password: d.password,
-      createdAt: Date.now(),
-      plan: null,
-      planMode: null,
-      discountCode: null,
-      featurePlan: null,
-      paidCanone: 0,
-      paidSetup: 0,
-      meters: emptyMeters(),
-      kb: [],
-      igConnected: false,
-      fbConnected: false,
-      metricoolConnected: false,
-      socialPosts: [],
-      socialSkipped: false,
-      metaConnected: false,
-      phase2Skipped: false,
-      videoConsultUsed: false,
-      onboardingDone: false,
-      campaigns: [],
-      leads: [],
-      alerts: [],
+  // Bootstrap sessione + sottoscrizione ai cambi di auth (logout da altre tab).
+  useEffect(() => {
+    let mounted = true;
+    supabase.auth.getSession().then(async ({ data }) => {
+      if (data.session?.user) {
+        const u = await loadProfile(data.session.user.id);
+        if (mounted) {
+          setUser(u);
+          setReady(true);
+        }
+      } else if (mounted) {
+        setUser(null);
+        setReady(true);
+      }
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT' && mounted) setUser(null);
+    });
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
     };
-    persist({ users: { ...db.users, [email]: u }, session: email });
+  }, []);
+
+  const register: StoreCtx['register'] = async (d) => {
+    const email = d.email.trim().toLowerCase();
+    const { error: signErr } = await supabase.auth.signUp({
+      email,
+      password: d.password,
+      options: {
+        data: {
+          nome: d.nome.trim(),
+          cognome: d.cognome.trim(),
+          cellulare: d.cellulare.trim(),
+          settore: d.settore.trim(),
+        },
+      },
+    });
+    if (signErr && /(registered|already|exists)/i.test(signErr.message)) {
+      return { ok: false, error: 'Esiste già un account con questa email.' };
+    }
+    // Login per ottenere la sessione (il trigger auto-conferma rende possibile
+    // l'accesso immediato, anche se il signUp non ha restituito una sessione).
+    const { data: sess, error: inErr } = await supabase.auth.signInWithPassword({
+      email,
+      password: d.password,
+    });
+    if (inErr || !sess.session?.user) {
+      return { ok: false, error: mapAuthError(inErr?.message || signErr?.message) };
+    }
+    const u = await loadProfile(sess.session.user.id);
+    setUser(u);
     return { ok: true };
   };
 
-  const login: StoreCtx['login'] = (email, password) => {
-    const key = email.trim().toLowerCase();
-    const u = db.users[key];
-    if (!u) return { ok: false, error: 'Nessun account trovato con questa email.' };
-    if (u.password !== password) return { ok: false, error: 'Password errata.' };
-    persist({ ...db, session: key });
+  const login: StoreCtx['login'] = async (email, password) => {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
+      password,
+    });
+    if (error || !data.session?.user) {
+      return { ok: false, error: mapAuthError(error?.message) };
+    }
+    const u = await loadProfile(data.session.user.id);
+    setUser(u);
     return { ok: true };
   };
 
-  const logout = () => persist({ ...db, session: null });
+  const logout = () => {
+    void supabase.auth.signOut();
+    setUser(null);
+  };
 
   const activatePlan: StoreCtx['activatePlan'] = (planId, code, mode) => {
     const priced = priceWithDiscount(planId, code);
@@ -351,13 +435,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const alreadyAlerted = u.alerts.some((a) => a.meter === meter && !a.read);
       if (remainingPct <= ALERT_THRESHOLD && !alreadyAlerted) {
         alerts = [
-          {
-            id: uid(),
-            meter,
-            remainingPct,
-            createdAt: Date.now(),
-            read: false,
-          },
+          { id: uid(), meter, remainingPct, createdAt: Date.now(), read: false },
           ...u.alerts,
         ];
       }
@@ -377,17 +455,35 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
 
   const addKb: StoreCtx['addKb'] = (files) => {
-    mutateUser((u) => ({
-      ...u,
-      kb: [
-        ...u.kb,
-        ...files.map((f) => ({ id: uid(), name: f.name, size: f.size, kind: f.kind, addedAt: Date.now() })),
-      ],
-    }));
+    const u = userRef.current;
+    if (!u || files.length === 0) return;
+    void (async () => {
+      const added: KbFile[] = [];
+      for (const f of files) {
+        const id = uid();
+        const safe = f.name.replace(/[^\w.\-]+/g, '_');
+        const path = `${u.id}/${id}-${safe}`;
+        try {
+          await supabase.storage
+            .from(KB_BUCKET)
+            .upload(path, f, { upsert: false, contentType: f.type || undefined });
+        } catch {
+          /* upload best-effort: registriamo comunque i metadati */
+        }
+        added.push({ id, name: f.name, size: f.size, kind: f.type || 'file', addedAt: Date.now(), path });
+      }
+      mutateUser((cur) => ({ ...cur, kb: [...cur.kb, ...added] }));
+    })();
   };
 
-  const removeKb: StoreCtx['removeKb'] = (id) =>
-    mutateUser((u) => ({ ...u, kb: u.kb.filter((f) => f.id !== id) }));
+  const removeKb: StoreCtx['removeKb'] = (id) => {
+    const u = userRef.current;
+    const f = u?.kb.find((x) => x.id === id);
+    if (f?.path) {
+      void supabase.storage.from(KB_BUCKET).remove([f.path]).catch(() => {});
+    }
+    mutateUser((cur) => ({ ...cur, kb: cur.kb.filter((x) => x.id !== id) }));
+  };
 
   const connectSocial: StoreCtx['connectSocial'] = (network) =>
     mutateUser((u) => ({
@@ -414,7 +510,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
 
   const skipSocial = () => mutateUser((u) => ({ ...u, socialSkipped: true }));
-
   const connectMeta = () => mutateUser((u) => ({ ...u, metaConnected: true }));
   const skipPhase2 = () => mutateUser((u) => ({ ...u, phase2Skipped: true }));
   const useVideoConsult = () => mutateUser((u) => ({ ...u, videoConsultUsed: true }));
@@ -469,7 +564,38 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     mutateUser((u) => ({ ...u, alerts: u.alerts.map((a) => ({ ...a, read: true })) }));
 
   const resetAll = () => {
-    persist({ users: {}, session: null });
+    const u = userRef.current;
+    if (!u) return;
+    const paths = u.kb.map((f) => f.path).filter(Boolean) as string[];
+    if (paths.length) {
+      void supabase.storage.from(KB_BUCKET).remove(paths).catch(() => {});
+    }
+    const fresh: User = {
+      ...u,
+      password: '',
+      plan: null,
+      planMode: null,
+      discountCode: null,
+      featurePlan: null,
+      paidCanone: 0,
+      paidSetup: 0,
+      meters: emptyMeters(),
+      kb: [],
+      igConnected: false,
+      fbConnected: false,
+      metricoolConnected: false,
+      socialPosts: [],
+      socialSkipped: false,
+      metaConnected: false,
+      phase2Skipped: false,
+      videoConsultUsed: false,
+      onboardingDone: false,
+      campaigns: [],
+      leads: [],
+      alerts: [],
+    };
+    setUser(fresh);
+    void persist(fresh);
   };
 
   const value: StoreCtx = {
