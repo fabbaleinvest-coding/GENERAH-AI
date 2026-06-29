@@ -17,6 +17,7 @@ import { AppShell } from '@/components/AppShell';
 import { MeterBar } from '@/components/Meters';
 import { TopUpModal } from '@/components/TopUpModal';
 import { Container, Button, Badge, Photo, cx } from '@/components/ui';
+import VideoConsult from '@/components/VideoConsult';
 import { IMG } from '@/lib/images';
 
 type Tab = 'overview' | 'leads' | 'campaigns' | 'video' | 'kb' | 'account';
@@ -391,20 +392,13 @@ function CampaignsView({ setTab }: { setTab: (t: Tab) => void }) {
 
 // ════════════════════════════ VIDEO ════════════════════════════
 function VideoView({ onTopUp }: { onTopUp: (m: MeterKey) => void }) {
-  const { user, consume } = useStore();
-  const [running, setRunning] = useState(false);
+  const { user, consume, useVideoConsult } = useStore();
+  const [active, setActive] = useState<null | 'trial' | 'plan'>(null);
   if (!user) return null;
 
   const hasVideo = user.meters.video.total > 0;
   const left = user.meters.video.total - user.meters.video.used;
-
-  function run() {
-    setRunning(true);
-    setTimeout(() => {
-      consume('video', Math.floor(3 + Math.random() * 7));
-      setRunning(false);
-    }, 1600);
-  }
+  const trialAvailable = !user.videoConsultUsed;
 
   return (
     <div className="space-y-6">
@@ -413,55 +407,67 @@ function VideoView({ onTopUp }: { onTopUp: (m: MeterKey) => void }) {
         <p className="mt-1 text-[0.9rem] text-mist">Un consulente con il volto e la voce della tua azienda, disponibile a ogni ora.</p>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
-        <div className="overflow-hidden rounded-2xl border border-white/10">
-          <Photo src={IMG.videoConsult} alt="Sessione di video-consulto" overlay="center" ratio="aspect-[16/10]" rounded="">
-            <div className="flex h-full items-center justify-center">
-              {running ? (
-                <div className="flex flex-col items-center gap-3">
-                  <svg className="h-9 w-9 animate-spin text-bone" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity="0.2" /><path d="M22 12a10 10 0 0 1-10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" /></svg>
-                  <p className="font-mono text-[0.72rem] uppercase tracking-[0.16em] text-bone/80 animate-pulse">Sessione in corso…</p>
-                </div>
-              ) : (
-                <button onClick={hasVideo ? run : undefined} disabled={!hasVideo || left <= 0} className={cx('flex h-16 w-16 items-center justify-center rounded-full border border-bone/40 bg-ink/30 backdrop-blur transition', hasVideo && left > 0 ? 'hover:bg-ink/50' : 'opacity-40')}>
+      {active ? (
+        <div>
+          <button onClick={() => setActive(null)} className="mb-4 font-mono text-[0.68rem] uppercase tracking-[0.14em] text-mist/60 transition hover:text-mist">← Torna</button>
+          <VideoConsult
+            mode={active}
+            maxMinutes={active === 'trial' ? 5 : left}
+            onEnded={(m) => {
+              if (active === 'trial') useVideoConsult();
+              else if (m > 0) consume('video', m);
+            }}
+          />
+        </div>
+      ) : (
+        <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="overflow-hidden rounded-2xl border border-white/10">
+            <Photo src={IMG.videoConsult} alt="Sessione di video-consulto" overlay="center" ratio="aspect-[16/10]" rounded="">
+              <div className="flex h-full items-center justify-center">
+                <button
+                  onClick={() => { if (trialAvailable) setActive('trial'); else if (hasVideo && left > 0) setActive('plan'); }}
+                  disabled={!trialAvailable && (!hasVideo || left <= 0)}
+                  className={cx('flex h-16 w-16 items-center justify-center rounded-full border border-bone/40 bg-ink/30 backdrop-blur transition', (trialAvailable || (hasVideo && left > 0)) ? 'hover:bg-ink/50' : 'opacity-40')}
+                >
                   <svg viewBox="0 0 24 24" className="h-7 w-7 translate-x-0.5 text-bone" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                 </button>
+              </div>
+            </Photo>
+          </div>
+
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-white/8 bg-ink-900/40 p-5">
+              <p className="font-mono text-[0.62rem] uppercase tracking-[0.16em] text-mist/70">Minuti video del piano</p>
+              {hasVideo ? (
+                <>
+                  <p className="mt-2 font-display text-3xl font-semibold text-bone">{num(left)} <span className="text-base font-normal text-mist">min residui</span></p>
+                  <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/8">
+                    <div className="h-full rounded-full bg-teal-400 transition-all duration-700" style={{ width: `${Math.max(2, Math.round((left / user.meters.video.total) * 100))}%` }} />
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                    <Button size="sm" onClick={() => setActive('plan')} disabled={left <= 0}>Avvia consulto</Button>
+                    <Button size="sm" variant="outline" onClick={() => onTopUp('video')}>Ricarica minuti</Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="mt-2 text-[0.9rem] text-mist">Il piano {user.plan ? PLANS[user.plan].name : ''} non include minuti video. Aggiungili quando vuoi.</p>
+                  <Button className="mt-4" size="sm" variant="outline" onClick={() => onTopUp('video')}>Aggiungi minuti video</Button>
+                </>
               )}
             </div>
-          </Photo>
-        </div>
 
-        <div className="space-y-4">
-          <div className="rounded-2xl border border-white/8 bg-ink-900/40 p-5">
-            <p className="font-mono text-[0.62rem] uppercase tracking-[0.16em] text-mist/70">Minuti video del piano</p>
-            {hasVideo ? (
-              <>
-                <p className="mt-2 font-display text-3xl font-semibold text-bone">{num(left)} <span className="text-base font-normal text-mist">min residui</span></p>
-                <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/8">
-                  <div className="h-full rounded-full bg-teal-400 transition-all duration-700" style={{ width: `${Math.max(2, Math.round((left / user.meters.video.total) * 100))}%` }} />
-                </div>
-                <div className="mt-4 flex gap-2">
-                  <Button size="sm" onClick={run} disabled={left <= 0 || running}>Avvia sessione demo</Button>
-                  <Button size="sm" variant="outline" onClick={() => onTopUp('video')}>Ricarica minuti</Button>
-                </div>
-              </>
-            ) : (
-              <>
-                <p className="mt-2 text-[0.9rem] text-mist">Il piano {user.plan ? PLANS[user.plan].name : ''} non include minuti video. Aggiungili quando vuoi.</p>
-                <Button className="mt-4" size="sm" variant="outline" onClick={() => onTopUp('video')}>Aggiungi minuti video</Button>
-              </>
-            )}
-          </div>
-
-          <div className={cx('rounded-2xl border p-5', user.videoConsultUsed ? 'border-white/8 bg-ink-900/40' : 'border-teal-300/25 bg-teal-400/[0.04]')}>
-            <div className="flex items-center justify-between">
-              <p className="font-display text-[0.98rem] font-semibold text-bone">Consulto omaggio · 5 min</p>
-              <Badge tone={user.videoConsultUsed ? 'muted' : 'teal'}>{user.videoConsultUsed ? 'Utilizzato' : 'Disponibile'}</Badge>
+            <div className={cx('rounded-2xl border p-5', trialAvailable ? 'border-teal-300/25 bg-teal-400/[0.04]' : 'border-white/8 bg-ink-900/40')}>
+              <div className="flex items-center justify-between">
+                <p className="font-display text-[0.98rem] font-semibold text-bone">Consulto omaggio · 5 min</p>
+                <Badge tone={trialAvailable ? 'teal' : 'muted'}>{trialAvailable ? 'Disponibile' : 'Utilizzato'}</Badge>
+              </div>
+              <p className="mt-2 text-[0.84rem] text-mist">{trialAvailable ? 'Provalo gratis una volta: non scala i minuti del piano.' : 'La prova gratuita una tantum è già stata utilizzata.'}</p>
+              {trialAvailable && <Button className="mt-4" size="sm" onClick={() => setActive('trial')}>Avvia prova gratuita</Button>}
             </div>
-            <p className="mt-2 text-[0.84rem] text-mist">La prova gratuita una tantum {user.videoConsultUsed ? 'è già stata utilizzata.' : 'è ancora disponibile dall onboarding.'}</p>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

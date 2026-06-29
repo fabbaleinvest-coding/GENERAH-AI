@@ -7,6 +7,7 @@ import { IMG } from '@/lib/images';
 import { Guard } from '@/components/Guard';
 import { AppShell } from '@/components/AppShell';
 import { Container, Button, Badge, Photo, Spinner, cx } from '@/components/ui';
+import VideoConsult from '@/components/VideoConsult';
 
 type Step = 'kb' | 'social' | 'meta' | 'director' | 'video' | 'photos' | 'preview' | 'targeting' | 'launch' | 'consult';
 
@@ -263,7 +264,6 @@ function OnboardingInner() {
   const [ageRange, setAgeRange] = useState('25-54');
   const [contacts, setContacts] = useState<number>(0);
   const [launched, setLaunched] = useState(false);
-  const [consultRunning, setConsultRunning] = useState(false);
   const [consultDone, setConsultDone] = useState(false);
 
   if (!user) return null;
@@ -358,14 +358,6 @@ function OnboardingInner() {
     }, 1800);
   }
 
-  function startConsult() {
-    setConsultRunning(true);
-    setTimeout(() => {
-      useVideoConsult();
-      setConsultRunning(false);
-      setConsultDone(true);
-    }, 2400);
-  }
   function finish() {
     finishOnboarding();
     router.replace('/dashboard');
@@ -1015,52 +1007,45 @@ function OnboardingInner() {
         </Panel>
       )}
 
-      {/* ════════ FASE 3 · VIDEO CONSULTO ════════ */}
+      {/* ════════ FASE 4 · VIDEO-CONSULTO ════════ */}
       {step === 'consult' && (
         <Panel>
           <Badge tone="teal">Fase 4 di 4 · Video-consulto</Badge>
           <h1 className="mt-4 font-display text-3xl font-semibold tracking-tight text-bone">Prova il tuo consulente AI</h1>
           <p className="mt-3 leading-relaxed text-mist">
-            Un video-consulto di 5 minuti, in omaggio una tantum. L avatar parla con la voce e le
-            competenze costruite dalla tua knowledge base: lo stesso consulente che riceverà i tuoi
-            clienti.
+            Un video-consulto reale di 5 minuti, in omaggio una tantum. L avatar parla con voce naturale e
+            attinge alla knowledge base caricata in Fase 1: è lo stesso consulente che riceverà i tuoi clienti.
           </p>
 
-          <div className="mt-6 overflow-hidden rounded-2xl border border-white/10">
-            <Photo src={IMG.videoConsult} alt="Video-consulto con avatar AI" overlay="center" ratio="aspect-[16/9]" rounded="">
-              <div className="flex h-full flex-col items-center justify-center text-center">
-                {consultDone ? (
-                  <>
-                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-teal-400 text-ink-900">
-                      <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 13l4 4L19 7" /></svg>
-                    </div>
-                    <p className="mt-3 font-display text-xl font-semibold text-bone">Sessione completata</p>
-                  </>
-                ) : consultRunning ? (
-                  <>
-                    <Spinner className="h-9 w-9 text-bone" />
-                    <p className="mt-3 font-mono text-[0.74rem] uppercase tracking-[0.16em] text-bone/80 animate-pulse">Avatar in collegamento…</p>
-                  </>
-                ) : (
-                  <button onClick={startConsult} className="flex h-16 w-16 items-center justify-center rounded-full border border-bone/40 bg-ink/30 backdrop-blur transition hover:bg-ink/50">
-                    <svg viewBox="0 0 24 24" className="h-7 w-7 translate-x-0.5 text-bone" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-                  </button>
-                )}
+          {user.videoConsultUsed ? (
+            <div className="mt-6 rounded-2xl border border-white/8 bg-ink-900/40 p-6 text-center">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-teal-400 text-ink-900">
+                <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 13l4 4L19 7" /></svg>
               </div>
-            </Photo>
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            <IntegrationTag>Avatar HeyGen-style</IntegrationTag>
-            <IntegrationTag>Voce: Roman · ElevenLabs</IntegrationTag>
-            <IntegrationTag>Memoria: knowledge base</IntegrationTag>
-            <IntegrationTag>5:00 · una tantum gratuita</IntegrationTag>
-          </div>
+              <p className="mt-3 font-display text-xl font-semibold text-bone">Prova completata</p>
+              <p className="mt-1.5 text-[0.9rem] text-mist">
+                Il consulto gratuito è stato utilizzato. Ritrovi il consulente nella dashboard, con i minuti video del tuo piano.
+              </p>
+            </div>
+          ) : (
+            <div className="mt-6">
+              <VideoConsult
+                mode="trial"
+                maxMinutes={5}
+                onEnded={() => {
+                  useVideoConsult();
+                  setConsultDone(true);
+                }}
+              />
+            </div>
+          )}
 
           <div className="mt-7 flex items-center justify-between">
-            <span className="text-[0.8rem] text-mist/70">{consultDone ? 'Tutto pronto. La tua console ti aspetta.' : 'Non scala i minuti del tuo piano.'}</span>
+            <span className="text-[0.8rem] text-mist/70">
+              {consultDone || user.videoConsultUsed ? 'Tutto pronto. La tua console ti aspetta.' : 'Prova gratuita di 5 minuti · non scala i minuti del piano.'}
+            </span>
             <Button size="lg" onClick={finish}>
-              {consultDone ? 'Entra nella dashboard' : 'Salta ed entra'}
+              {consultDone || user.videoConsultUsed ? 'Entra nella dashboard' : 'Salta ed entra'}
             </Button>
           </div>
         </Panel>
