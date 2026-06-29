@@ -237,7 +237,7 @@ function IntegrationTag({ children }: { children: React.ReactNode }) {
 }
 
 function OnboardingInner() {
-  const { user, addKb, removeKb, connectSocial, scheduleSocialPosts, generateSocialPlan, skipSocial, connectMeta, skipPhase2, launchCampaign, generateCampaignBrief, useVideoConsult, finishOnboarding } = useStore();
+  const { user, addKb, removeKb, connectSocial, scheduleSocialPosts, generateSocialPlan, skipSocial, connectMeta, skipPhase2, launchCampaign, generateCampaignBrief, generateAdVideo, useVideoConsult, finishOnboarding } = useStore();
   const router = useRouter();
   const [step, setStep] = useState<Step>('kb');
   const fileRef = useRef<HTMLInputElement>(null);
@@ -248,6 +248,9 @@ function OnboardingInner() {
   const [running, setRunning] = useState(false);
   const [directorDone, setDirectorDone] = useState(false);
   const [videoDone, setVideoDone] = useState(false);
+  const [videoProgress, setVideoProgress] = useState('');
+  const [adClips, setAdClips] = useState<string[]>([]);
+  const [adAudio, setAdAudio] = useState<string | null>(null);
   const [photoChoice, setPhotoChoice] = useState<'upload' | 'generate' | null>(null);
   const [photoReady, setPhotoReady] = useState(false);
 
@@ -328,12 +331,33 @@ function OnboardingInner() {
     setRunning(false);
     setDirectorDone(true);
   }
-  function runVideo() {
+  async function runVideo() {
+    // Senza brief AI (chiave Anthropic assente) non ci sono scene da generare:
+    // resta il rendering simulato come prima.
+    if (!aiBrief || !aiBrief.scenes.length) {
+      setRunning(true);
+      setTimeout(() => {
+        setRunning(false);
+        setVideoDone(true);
+      }, 2600);
+      return;
+    }
     setRunning(true);
-    setTimeout(() => {
-      setRunning(false);
+    setVideoProgress('Avvio della pipeline…');
+    const r = await generateAdVideo(aiBrief, (m) => setVideoProgress(m));
+    setRunning(false);
+    if (r.ok && r.clips.length) {
+      setAdClips(r.clips);
+      setAdAudio(r.audioUrl);
+      setVideoProgress('');
       setVideoDone(true);
-    }, 2600);
+    } else {
+      const msg = r.error || 'Generazione non riuscita';
+      setVideoProgress(msg);
+      // Se la pipeline non è configurata (env Higgsfield assente), completa
+      // comunque l'onboarding in modalità dimostrativa.
+      if (/configur/i.test(msg)) setVideoDone(true);
+    }
   }
   function choosePhotos(choice: 'upload' | 'generate') {
     setPhotoChoice(choice);
@@ -788,41 +812,71 @@ function OnboardingInner() {
             <div>
               {!videoDone ? (
                 running ? (
-                  <ul className="space-y-3">
-                    {['Scena 1 · rendering Kling 3.0 Turbo', 'Scena 2 · rendering Kling 3.0 Turbo', 'Voce narrante · ElevenLabs (Roman)', 'Montaggio + sottotitoli automatici'].map((t, i) => (
-                      <li key={t} className="flex items-center gap-3 rounded-xl border border-white/8 bg-ink/40 px-3.5 py-3">
-                        <Spinner className="h-4 w-4 text-teal-300" style={{ animationDelay: `${i * 120}ms` }} />
-                        <span className="text-[0.85rem] text-mist">{t}</span>
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3 rounded-xl border border-teal-300/25 bg-teal-400/[0.04] px-3.5 py-3">
+                      <Spinner className="h-4 w-4 text-teal-300" />
+                      <span className="text-[0.85rem] text-mist">{videoProgress || 'Generazione in corso…'}</span>
+                    </div>
+                    <p className="font-mono text-[0.6rem] uppercase tracking-[0.12em] text-mist/45">
+                      Pipeline reale Higgsfield · immagine → clip per scena → voiceover
+                    </p>
+                  </div>
                 ) : (
                   <div className="flex h-full flex-col justify-center">
                     <Button size="lg" onClick={runVideo}>
                       Avvia la generazione
                     </Button>
                     <p className="mt-3 font-mono text-[0.62rem] uppercase tracking-[0.12em] text-mist/45">
-                      Punto di integrazione · in demo il rendering è simulato
+                      Pipeline reale · richiede HIGGSFIELD_CREDENTIALS (env)
                     </p>
+                    {videoProgress && (
+                      <p className="mt-2 text-[0.78rem] text-amber-300/80">{videoProgress}</p>
+                    )}
                   </div>
                 )
               ) : (
                 <div className="space-y-3">
-                  {[
-                    ['Scena 1', 'Il problema, volti reali'],
-                    ['Scena 2', 'La promessa, sollievo e CTA'],
-                    ['Voce', 'Roman · calda, italiana'],
-                    ['Montaggio', 'Sottotitoli + musica continua'],
-                  ].map(([a, b]) => (
-                    <div key={a} className="flex items-center gap-3 rounded-xl border border-teal-300/20 bg-teal-400/[0.04] px-3.5 py-3">
-                      <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-teal-300" fill="none" stroke="currentColor" strokeWidth="2.5">
-                        <path d="M5 13l4 4L19 7" />
-                      </svg>
-                      <span className="text-[0.85rem] text-bone">
-                        <span className="font-medium">{a}</span> · <span className="text-mist">{b}</span>
-                      </span>
-                    </div>
-                  ))}
+                  {adClips.length > 0 ? (
+                    <>
+                      {adClips.map((u, i) => (
+                        <video
+                          key={i}
+                          src={u}
+                          controls
+                          playsInline
+                          className="w-full rounded-xl border border-white/8 bg-ink/40"
+                        />
+                      ))}
+                      {adAudio && (
+                        <div className="rounded-xl border border-teal-300/20 bg-teal-400/[0.04] p-3">
+                          <p className="mb-1.5 font-mono text-[0.6rem] uppercase tracking-[0.14em] text-teal-300/80">
+                            Voiceover · Roman
+                          </p>
+                          <audio src={adAudio} controls className="w-full" />
+                        </div>
+                      )}
+                      <p className="text-[0.74rem] leading-relaxed text-mist/60">
+                        Clip generati con la pipeline Higgsfield. Il montaggio in un unico spot 0:30 con
+                        sottotitoli automatici avviene nel passo successivo.
+                      </p>
+                    </>
+                  ) : (
+                    [
+                      ['Scena 1', 'Il problema, volti reali'],
+                      ['Scena 2', 'La promessa, sollievo e CTA'],
+                      ['Voce', 'Roman · calda, italiana'],
+                      ['Montaggio', 'Sottotitoli + musica continua'],
+                    ].map(([a, b]) => (
+                      <div key={a} className="flex items-center gap-3 rounded-xl border border-teal-300/20 bg-teal-400/[0.04] px-3.5 py-3">
+                        <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-teal-300" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <path d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span className="text-[0.85rem] text-bone">
+                          <span className="font-medium">{a}</span> · <span className="text-mist">{b}</span>
+                        </span>
+                      </div>
+                    ))
+                  )}
                   <div className="flex justify-end pt-2">
                     <Button onClick={goNext}>Aggiungi le immagini</Button>
                   </div>

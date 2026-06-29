@@ -14,6 +14,7 @@ import {
   priceWithDiscount,
 } from './plans';
 import { supabase, KB_BUCKET } from './supabase';
+import { scenesToSrt } from './subtitles';
 
 // ─────────────────────────────────────────────────────────────────────────
 //  GENERAH IT · store reale su Supabase (DB + Auth + Storage).
@@ -379,6 +380,10 @@ interface StoreCtx {
     geo?: string;
     ageRange?: string;
   }) => Promise<{ ok: boolean; brief?: CampaignBrief; error?: string }>;
+  generateAdVideo: (
+    brief: CampaignBrief,
+    onProgress?: (msg: string) => void
+  ) => Promise<{ ok: boolean; clips: string[]; audioUrl: string | null; srt: string; error?: string }>;
   addLead: (l: Omit<Lead, 'id' | 'createdAt' | 'lastTouch'>) => void;
   updateLead: (id: string, patch: Partial<Lead>) => void;
   enrichLead: (id: string) => Promise<{ ok: boolean; error?: string }>;
@@ -909,6 +914,77 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const generateAdVideo: StoreCtx['generateAdVideo'] = async (brief, onProgress) => {
+    const empty = { ok: false, clips: [] as string[], audioUrl: null as string | null, srt: '' };
+    const u = userRef.current;
+    if (!u) return { ...empty, error: 'Utente non disponibile' };
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    if (!token) return { ...empty, error: 'Sessione non disponibile' };
+    const auth = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+
+    const submit = async (payload: Record<string, unknown>) => {
+      const res = await fetch('/api/ads/video/submit', {
+        method: 'POST',
+        headers: auth,
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String((data as any)?.error || `HTTP ${res.status}`));
+      return data as { requestId?: string; status?: string; url?: string | null; skipped?: boolean };
+    };
+    const poll = async (requestId: string, url0?: string | null): Promise<string> => {
+      if (url0) return url0;
+      for (let i = 0; i < 120; i++) {
+        const res = await fetch(`/api/ads/video/status?id=${encodeURIComponent(requestId)}`, {
+          headers: auth,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(String((data as any)?.error || `HTTP ${res.status}`));
+        const status = (data as any)?.status;
+        if (status === 'completed') {
+          const url = (data as any)?.url;
+          if (!url) throw new Error('Risultato senza URL');
+          return url as string;
+        }
+        if (status === 'failed' || status === 'nsfw') throw new Error(`Job ${status}`);
+        await new Promise((r) => setTimeout(r, 2500));
+      }
+      throw new Error('Timeout generazione');
+    };
+
+    try {
+      const scenes = Array.isArray(brief.scenes) ? brief.scenes : [];
+      if (!scenes.length) return { ...empty, error: 'Brief senza scene' };
+      const clips: string[] = [];
+      for (const sc of scenes) {
+        onProgress?.(`Scena ${sc.n}: genero l'immagine…`);
+        const img = await submit({ step: 'image', prompt: sc.visual });
+        const imageUrl = await poll(img.requestId || '', img.url);
+        onProgress?.(`Scena ${sc.n}: animo il video…`);
+        const clip = await submit({ step: 'clip', prompt: sc.visual, imageUrl });
+        const clipUrl = await poll(clip.requestId || '', clip.url);
+        clips.push(clipUrl);
+      }
+      let audioUrl: string | null = null;
+      const voText = scenes
+        .map((s) => s.voiceover)
+        .filter(Boolean)
+        .join(' ');
+      if (voText) {
+        onProgress?.('Genero il voiceover…');
+        const vo = await submit({ step: 'voiceover', text: voText });
+        if (!vo.skipped && vo.requestId) audioUrl = await poll(vo.requestId, vo.url);
+      }
+      const srt = scenesToSrt(
+        scenes.map((s) => ({ durationSec: s.durationSec, voiceover: s.voiceover }))
+      );
+      onProgress?.('Clip pronti.');
+      return { ok: true, clips, audioUrl, srt };
+    } catch (e) {
+      return { ...empty, error: (e as Error).message };
+    }
+  };
+
   const markAlertsRead = () =>
     mutateUser((u) => ({ ...u, alerts: u.alerts.map((a) => ({ ...a, read: true })) }));
 
@@ -971,6 +1047,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     finishOnboarding,
     launchCampaign,
     generateCampaignBrief,
+    generateAdVideo,
     addLead,
     updateLead,
     enrichLead,
