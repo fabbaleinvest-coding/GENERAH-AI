@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { retrieveContext, formatContext } from '@/lib/retrieve';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,11 +29,24 @@ type Body = {
   kbFiles?: string[];
 };
 
-function buildPrompt(lead: LeadIn, nome: string, settore: string, kbFiles: string[]): string {
+function bearer(req: Request): string {
+  const h = req.headers.get('authorization') || '';
+  return h.toLowerCase().startsWith('bearer ') ? h.slice(7).trim() : '';
+}
+
+function buildPrompt(
+  lead: LeadIn,
+  nome: string,
+  settore: string,
+  kbFiles: string[],
+  ragContext: string
+): string {
   const docs = (kbFiles || []).filter(Boolean);
-  const kb = docs.length
-    ? `Materiali dell'azienda (knowledge base): ${docs.join(', ')}.`
-    : "L'azienda non ha ancora caricato materiali: basati sul settore.";
+  const kb = ragContext
+    ? `Estratti pertinenti dalla knowledge base dell'azienda (usali come fonte di verità su prodotti, servizi, prezzi, offerta e tono):\n\n${ragContext}`
+    : docs.length
+      ? `Materiali dell'azienda (knowledge base): ${docs.join(', ')}.`
+      : "L'azienda non ha ancora caricato materiali: basati sul settore.";
   return `Azienda di ${nome || 'un imprenditore'}, settore: ${settore || 'non specificato'}. ${kb}
 
 LEAD da qualificare:
@@ -98,7 +112,14 @@ export async function POST(req: Request) {
   const nome = body.nome || '';
   const settore = body.settore || '';
   const kbFiles = Array.isArray(body.kbFiles) ? body.kbFiles : [];
-  const prompt = buildPrompt(lead, nome, settore, kbFiles);
+
+  // RAG: recupera dalla knowledge base i passaggi pertinenti a questo lead
+  // (interesse + note) per ancorare qualifica e follow-up ai contenuti reali.
+  const token = bearer(req);
+  const ragQuery =
+    [lead.interest, lead.notes, lead.name].filter(Boolean).join(' ').trim() || settore || nome;
+  const ragChunks = token ? await retrieveContext(token, ragQuery, 6) : [];
+  const prompt = buildPrompt(lead, nome, settore, kbFiles, formatContext(ragChunks));
   const model = process.env.ANTHROPIC_MODEL || 'claude-opus-4-8';
 
   try {

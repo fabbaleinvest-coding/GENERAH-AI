@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { retrieveContext, formatContext } from '@/lib/retrieve';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -47,13 +48,21 @@ type Body = {
   minutes?: number;
 };
 
-function buildSalesPrompt(name: string, settore: string, kbFiles: string[], minutes: number): string {
+function buildSalesPrompt(
+  name: string,
+  settore: string,
+  kbFiles: string[],
+  minutes: number,
+  ragContext: string
+): string {
   const safeName = (name || '').trim() || "l'interlocutore";
   const sector = (settore || '').trim() || 'la sua attività';
   const docs = (kbFiles || []).filter(Boolean);
-  const kbBlock = docs.length
-    ? `L'azienda ha caricato questi materiali nella propria knowledge base (usali come riferimento del business: prodotti, servizi, tono, offerta):\n- ${docs.join('\n- ')}`
-    : `L'azienda non ha ancora caricato materiali: basati sul settore dichiarato e conduci comunque un consulto credibile e concreto.`;
+  const kbBlock = ragContext
+    ? `Estratti reali dai materiali caricati dall'azienda (usali come fonte di verità su prodotti, servizi, prezzi, offerta e tono; cita dati concreti quando utile):\n\n${ragContext}`
+    : docs.length
+      ? `L'azienda ha caricato questi materiali nella propria knowledge base (usali come riferimento del business: prodotti, servizi, tono, offerta):\n- ${docs.join('\n- ')}`
+      : `L'azienda non ha ancora caricato materiali: basati sul settore dichiarato e conduci comunque un consulto credibile e concreto.`;
 
   return `# RUOLO E IDENTITÀ
 Sei il consulente commerciale AI di GENERAH AI, il reparto vendite autonomo dell'azienda di ${safeName}. Parli in italiano, con voce calda, naturale ed empatica. Conduci un video-consulto in tempo reale: lo stesso consulente che, una volta attivo, riceverà e convertirà i clienti dell'azienda.
@@ -93,7 +102,7 @@ Verso la fine, chiudi con naturalezza: "${safeName}, il modo migliore per capire
 - Resta sempre nel perimetro del business dell'azienda; non dare consulenze regolamentate (legali, mediche, finanziarie).`;
 }
 
-async function createToken(body: Body) {
+async function createToken(body: Body, token: string) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return NextResponse.json({ error: 'OPENAI_API_KEY mancante (env)' }, { status: 500 });
 
@@ -103,7 +112,14 @@ async function createToken(body: Body) {
   const voice = process.env.OPENAI_REALTIME_VOICE || 'marin';
   const effort = (process.env.OPENAI_REALTIME_EFFORT || 'low').trim().toLowerCase();
 
-  const instructions = buildSalesPrompt(name, body.settore || '', body.kbFiles || [], minutes);
+  // RAG: porta nell'avatar i contenuti reali della knowledge base. Query ampia
+  // sul profilo del business; cap di lunghezza per non gonfiare le istruzioni.
+  const ragQuery =
+    `prodotti servizi prezzi offerta punti di forza clienti FAQ tono di voce dell'azienda ${(body.settore || '').trim()}`.trim();
+  const ragChunks = token ? await retrieveContext(token, ragQuery, 10) : [];
+  const ragContext = formatContext(ragChunks, 6000);
+
+  const instructions = buildSalesPrompt(name, body.settore || '', body.kbFiles || [], minutes, ragContext);
   const greeting =
     `Buongiorno ${name}, sono il consulente AI di GENERAH AI. In pochi minuti le mostro come posso acquisire e convertire i suoi contatti, senza sosta. Mi dica: oggi come gestite chi vi contatta?`;
 
@@ -136,14 +152,19 @@ async function createToken(body: Body) {
   }
 }
 
+function bearer(req: Request): string {
+  const h = req.headers.get('authorization') || '';
+  return h.toLowerCase().startsWith('bearer ') ? h.slice(7).trim() : '';
+}
+
 export async function POST(req: Request) {
   let body: Body = {};
   try {
     body = await req.json();
   } catch {}
-  return createToken(body);
+  return createToken(body, bearer(req));
 }
 
 export async function GET() {
-  return createToken({});
+  return createToken({}, '');
 }

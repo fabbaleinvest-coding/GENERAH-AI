@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/lib/store';
+import { supabase } from '@/lib/supabase';
 import { Button, Badge, cx } from '@/components/ui';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -269,9 +270,13 @@ export default function VideoConsult({ mode, maxMinutes, onEnded }: VideoConsult
   }
 
   async function startOpenAI() {
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
     const r = await fetch('/api/realtime-session', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify({
         nome: user?.nome || '',
         settore: user?.settore || '',

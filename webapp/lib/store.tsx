@@ -760,9 +760,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const lead = u.leads.find((l) => l.id === id);
     if (!lead) return { ok: false, error: 'Lead non trovato' };
     try {
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
       const res = await fetch('/api/crm/ai', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           lead: {
             name: lead.name,
