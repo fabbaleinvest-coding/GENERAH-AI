@@ -41,12 +41,17 @@ export interface KbSource {
   similarity: number | null;
 }
 
-export interface SocialPost {
-  id: string;
+export interface SocialPostDraft {
   week: string;
   format: string;
   title: string;
   bullets: string[];
+  caption?: string;
+  imagePrompt?: string;
+}
+
+export interface SocialPost extends SocialPostDraft {
+  id: string;
   scheduledFor: number;
   status: 'programmato';
 }
@@ -334,9 +339,8 @@ interface StoreCtx {
   removeKb: (id: string) => void;
   askKb: (question: string) => Promise<{ ok: boolean; answer?: string; sources?: KbSource[]; error?: string }>;
   connectSocial: (network: 'ig' | 'fb' | 'metricool') => void;
-  scheduleSocialPosts: (
-    posts: { week: string; format: string; title: string; bullets: string[] }[]
-  ) => void;
+  scheduleSocialPosts: (posts: SocialPostDraft[]) => void;
+  generateSocialPlan: () => Promise<{ ok: boolean; posts?: SocialPostDraft[]; error?: string }>;
   skipSocial: () => void;
   connectMeta: () => void;
   skipPhase2: () => void;
@@ -678,11 +682,43 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         format: p.format,
         title: p.title,
         bullets: p.bullets,
+        caption: p.caption,
+        imagePrompt: p.imagePrompt,
         scheduledFor: now + (i + 1) * WEEK,
         status: 'programmato' as const,
       }));
       return { ...u, socialPosts: scheduled };
     });
+
+  // Generazione reale del piano editoriale via Opus 4.8 (route /api/social/plan),
+  // ancorata alla knowledge base (retrieval) col token di sessione.
+  const generateSocialPlan: StoreCtx['generateSocialPlan'] = async () => {
+    const u = userRef.current;
+    if (!u) return { ok: false, error: 'Utente non disponibile' };
+    try {
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const res = await fetch('/api/social/plan', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          nome: u.nome,
+          settore: u.settore,
+          kbFiles: u.kb.map((f) => f.name),
+          count: 4,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, error: String(data?.error || `HTTP ${res.status}`) };
+      const posts = Array.isArray(data?.posts) ? (data.posts as SocialPostDraft[]) : [];
+      if (posts.length === 0) return { ok: false, error: 'Nessun post generato' };
+      return { ok: true, posts };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  };
 
   const skipSocial = () => mutateUser((u) => ({ ...u, socialSkipped: true }));
   const connectMeta = () => mutateUser((u) => ({ ...u, metaConnected: true }));
@@ -865,6 +901,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     askKb,
     connectSocial,
     scheduleSocialPosts,
+    generateSocialPlan,
     skipSocial,
     connectMeta,
     skipPhase2,

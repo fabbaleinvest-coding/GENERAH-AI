@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/lib/store';
+import type { SocialPostDraft } from '@/lib/store';
 import { IMG } from '@/lib/images';
 import { Guard } from '@/components/Guard';
 import { AppShell } from '@/components/AppShell';
@@ -236,7 +237,7 @@ function IntegrationTag({ children }: { children: React.ReactNode }) {
 }
 
 function OnboardingInner() {
-  const { user, addKb, removeKb, connectSocial, scheduleSocialPosts, skipSocial, connectMeta, skipPhase2, launchCampaign, useVideoConsult, finishOnboarding } = useStore();
+  const { user, addKb, removeKb, connectSocial, scheduleSocialPosts, generateSocialPlan, skipSocial, connectMeta, skipPhase2, launchCampaign, useVideoConsult, finishOnboarding } = useStore();
   const router = useRouter();
   const [step, setStep] = useState<Step>('kb');
   const fileRef = useRef<HTMLInputElement>(null);
@@ -256,6 +257,8 @@ function OnboardingInner() {
   const [socialPlanReady, setSocialPlanReady] = useState(false);
   const [socialScheduling, setSocialScheduling] = useState(false);
   const [socialScheduled, setSocialScheduled] = useState(false);
+  const [aiPlan, setAiPlan] = useState<SocialPostDraft[] | null>(null);
+  const plan: PlanPost[] = aiPlan ?? socialPlan;
 
   // config campagna
   const creative = useMemo(() => buildCreative(user?.settore ?? '', user?.nome ?? ''), [user?.settore, user?.nome]);
@@ -280,18 +283,26 @@ function OnboardingInner() {
     skipSocial();
     setStep('meta');
   }
-  function genSocialPlan() {
+  async function genSocialPlan() {
     setSocialGenerating(true);
-    setTimeout(() => {
-      setSocialGenerating(false);
-      setSocialPlanReady(true);
-    }, 2300);
+    const r = await generateSocialPlan();
+    if (r.ok && r.posts && r.posts.length) setAiPlan(r.posts);
+    // se l'AI non è disponibile (es. chiave mancante), si usa il piano di fallback
+    setSocialGenerating(false);
+    setSocialPlanReady(true);
   }
   function scheduleSocial() {
     setSocialScheduling(true);
     setTimeout(() => {
       scheduleSocialPosts(
-        socialPlan.map((p) => ({ week: p.week, format: p.format, title: p.title, bullets: p.bullets }))
+        plan.map((p) => ({
+          week: p.week,
+          format: p.format,
+          title: p.title,
+          bullets: p.bullets,
+          caption: (p as SocialPostDraft).caption,
+          imagePrompt: (p as SocialPostDraft).imagePrompt,
+        }))
       );
       setSocialScheduling(false);
       setSocialScheduled(true);
@@ -555,7 +566,7 @@ function OnboardingInner() {
                   Piano editoriale · 4 post · 1 a settimana
                 </p>
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  {socialPlan.map((p) => (
+                  {plan.map((p) => (
                     <div key={p.week} className="overflow-hidden rounded-2xl border border-white/10 bg-ink-900">
                       <Photo src={IMG.socialPost} alt={`Infografica · ${p.title}`} overlay="none" ratio="aspect-[4/5]" rounded="">
                         <div className="absolute inset-0 bg-gradient-to-t from-ink via-ink/85 to-ink/45" />
