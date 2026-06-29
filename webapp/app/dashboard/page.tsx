@@ -11,7 +11,7 @@ import {
   euro,
   num,
 } from '@/lib/plans';
-import { Lead, LeadStatus, LeadStatusOrder } from '@/lib/store';
+import { Lead, LeadStatus, LeadStatusOrder, KbFile, KbSource } from '@/lib/store';
 import { Guard } from '@/components/Guard';
 import { AppShell } from '@/components/AppShell';
 import { MeterBar } from '@/components/Meters';
@@ -625,12 +625,116 @@ function KbView() {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[0.88rem] text-bone">{f.name}</p>
                 <p className="text-[0.72rem] text-mist/60">{fmtBytes(f.size)} · {new Date(f.addedAt).toLocaleDateString('it-IT')}</p>
+                <KbStatus f={f} />
               </div>
               <button onClick={() => removeKb(f.id)} className="rounded-lg p-2 text-mist transition hover:bg-coral/10 hover:text-coral" aria-label="Rimuovi">
                 <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 6l12 12M18 6L6 18" /></svg>
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {user.kb.length > 0 && <KbAsk />}
+    </div>
+  );
+}
+
+function KbStatus({ f }: { f: KbFile }) {
+  const s = f.indexStatus;
+  if (!s) return null;
+  if (s === 'pending')
+    return (
+      <span className="mt-0.5 inline-flex items-center gap-1.5 text-[0.7rem] text-amber-soft">
+        <svg viewBox="0 0 24 24" className="h-3 w-3 animate-spin" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-6.2-8.6" /></svg>
+        Indicizzazione…
+      </span>
+    );
+  if (s === 'indexed')
+    return (
+      <span className="mt-0.5 inline-flex items-center gap-1.5 text-[0.7rem] text-teal-200">
+        <span className="h-1.5 w-1.5 rounded-full bg-teal-300" /> Indicizzato · {f.chunks ?? 0} frammenti
+      </span>
+    );
+  if (s === 'unsupported')
+    return <span className="mt-0.5 inline-flex text-[0.7rem] text-mist/50">Non indicizzabile (nessun testo)</span>;
+  return <span className="mt-0.5 inline-flex text-[0.7rem] text-coral">Errore d&apos;indicizzazione</span>;
+}
+
+function KbAsk() {
+  const { askKb } = useStore();
+  const [q, setQ] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [res, setRes] = useState<{ answer: string; sources: KbSource[] } | null>(null);
+  const [err, setErr] = useState('');
+
+  async function ask() {
+    const question = q.trim();
+    if (!question || loading) return;
+    setLoading(true);
+    setErr('');
+    setRes(null);
+    const r = await askKb(question);
+    setLoading(false);
+    if (!r.ok) {
+      setErr(r.error || 'Errore imprevisto');
+      return;
+    }
+    setRes({ answer: r.answer || '', sources: r.sources || [] });
+  }
+
+  const configErr = err.includes('OPENAI_API_KEY') || err.includes('ANTHROPIC_API_KEY');
+
+  return (
+    <div className="rounded-2xl border border-white/8 bg-ink-900/40 p-5">
+      <div className="flex items-center gap-2">
+        <svg viewBox="0 0 24 24" className="h-5 w-5 text-teal-200" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.4L12 3z" /></svg>
+        <p className="font-display text-[1.05rem] font-semibold text-bone">Chiedi alla tua Knowledge Base</p>
+      </div>
+      <p className="mt-1 text-[0.84rem] text-mist">Opus 4.8 risponde basandosi solo sui tuoi documenti indicizzati, citando le fonti.</p>
+
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void ask();
+          }}
+          placeholder="Es. Qual è il prezzo del servizio principale?"
+          className="flex-1 rounded-xl border border-white/10 bg-ink/70 px-3.5 py-2.5 text-[0.9rem] text-bone placeholder-mist/40 focus:border-teal-300/60 focus:outline-none"
+        />
+        <Button onClick={() => void ask()} disabled={loading || !q.trim()}>
+          {loading ? 'Cerco…' : 'Chiedi'}
+        </Button>
+      </div>
+
+      {err && (
+        <p className="mt-3 text-[0.84rem] text-coral">
+          {configErr
+            ? 'Configurazione richiesta: imposta OPENAI_API_KEY (embeddings) e ANTHROPIC_API_KEY (risposta) nelle variabili d’ambiente.'
+            : err}
+        </p>
+      )}
+
+      {res && (
+        <div className="mt-4 space-y-3">
+          <div className="rounded-xl border border-teal-300/20 bg-teal-400/5 p-4">
+            <p className="whitespace-pre-wrap text-[0.9rem] text-bone/90">{res.answer}</p>
+          </div>
+          {res.sources.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[0.68rem] uppercase tracking-wide text-mist/50">Fonti</p>
+              {res.sources.map((s, i) => (
+                <div key={i} className="rounded-lg border border-white/8 bg-ink-900/50 px-3 py-2">
+                  <p className="text-[0.76rem] font-medium text-teal-200">
+                    [Fonte {i + 1}] {s.file_name}
+                    {typeof s.similarity === 'number' ? ` · ${Math.round(s.similarity * 100)}%` : ''}
+                  </p>
+                  <p className="mt-0.5 text-[0.76rem] text-mist/70">{s.snippet}…</p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

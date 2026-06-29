@@ -406,6 +406,10 @@ function OnboardingInner() {
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[0.86rem] text-bone">{f.name}</span>
                     <span className="block text-[0.72rem] text-mist/60">{fmtBytes(f.size)}</span>
+                    {f.indexStatus === 'pending' && <span className="mt-0.5 block text-[0.7rem] text-amber-soft">Indicizzazione…</span>}
+                    {f.indexStatus === 'indexed' && <span className="mt-0.5 block text-[0.7rem] text-teal-200">Indicizzato · {f.chunks ?? 0} frammenti</span>}
+                    {f.indexStatus === 'unsupported' && <span className="mt-0.5 block text-[0.7rem] text-mist/50">Non indicizzabile</span>}
+                    {f.indexStatus === 'error' && <span className="mt-0.5 block text-[0.7rem] text-coral">Errore indicizzazione</span>}
                   </span>
                   <button onClick={() => removeKb(f.id)} className="rounded-lg p-1.5 text-mist transition hover:bg-coral/10 hover:text-coral" aria-label="Rimuovi">
                     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">

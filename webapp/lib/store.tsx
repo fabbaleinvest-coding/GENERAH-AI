@@ -22,6 +22,8 @@ import { supabase, KB_BUCKET } from './supabase';
 //  (tabella public.profiles, RLS owner-only), l'autenticazione su Supabase
 //  Auth (email+password) e i file della knowledge base su Supabase Storage.
 // ─────────────────────────────────────────────────────────────────────────
+export type KbIndexStatus = 'pending' | 'indexed' | 'unsupported' | 'error';
+
 export interface KbFile {
   id: string;
   name: string;
@@ -29,6 +31,14 @@ export interface KbFile {
   kind: string;
   addedAt: number;
   path?: string; // percorso su Supabase Storage (bucket kb)
+  indexStatus?: KbIndexStatus; // stato indicizzazione RAG
+  chunks?: number; // numero di frammenti indicizzati
+}
+
+export interface KbSource {
+  file_name: string;
+  snippet: string;
+  similarity: number | null;
 }
 
 export interface SocialPost {
@@ -322,6 +332,7 @@ interface StoreCtx {
   topUp: (meter: MeterKey, qty: number) => void;
   addKb: (files: File[]) => void;
   removeKb: (id: string) => void;
+  askKb: (question: string) => Promise<{ ok: boolean; answer?: string; sources?: KbSource[]; error?: string }>;
   connectSocial: (network: 'ig' | 'fb' | 'metricool') => void;
   scheduleSocialPosts: (
     posts: { week: string; format: string; title: string; bullets: string[] }[]
@@ -539,11 +550,54 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const setKbStatus = (id: string, patch: Partial<KbFile>) =>
+    mutateUser((cur) => ({
+      ...cur,
+      kb: cur.kb.map((k) => (k.id === id ? { ...k, ...patch } : k)),
+    }));
+
+  // Indicizzazione RAG di un singolo file: estrae il testo (browser), lo manda
+  // a /api/kb/ingest (chunk + embeddings + insert) e aggiorna lo stato.
+  const indexKbFile = async (meta: KbFile, file?: File) => {
+    if (!file) {
+      setKbStatus(meta.id, { indexStatus: 'error' });
+      return;
+    }
+    try {
+      const { extractText } = await import('./extract');
+      const { text, supported } = await extractText(file);
+      if (!supported || !text.trim()) {
+        setKbStatus(meta.id, { indexStatus: 'unsupported', chunks: 0 });
+        return;
+      }
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      if (!token) {
+        setKbStatus(meta.id, { indexStatus: 'error' });
+        return;
+      }
+      const res = await fetch('/api/kb/ingest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ fileId: meta.id, fileName: meta.name, text }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setKbStatus(meta.id, { indexStatus: 'error' });
+        return;
+      }
+      const n = Number(data?.chunks) || 0;
+      setKbStatus(meta.id, { indexStatus: n > 0 ? 'indexed' : 'unsupported', chunks: n });
+    } catch {
+      setKbStatus(meta.id, { indexStatus: 'error' });
+    }
+  };
+
   const addKb: StoreCtx['addKb'] = (files) => {
     const u = userRef.current;
     if (!u || files.length === 0) return;
     void (async () => {
       const added: KbFile[] = [];
+      const fileById: Record<string, File> = {};
       for (const f of files) {
         const id = uid();
         const safe = f.name.replace(/[^\w.\-]+/g, '_');
@@ -555,9 +609,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         } catch {
           /* upload best-effort: registriamo comunque i metadati */
         }
-        added.push({ id, name: f.name, size: f.size, kind: f.type || 'file', addedAt: Date.now(), path });
+        added.push({
+          id,
+          name: f.name,
+          size: f.size,
+          kind: f.type || 'file',
+          addedAt: Date.now(),
+          path,
+          indexStatus: 'pending',
+        });
+        fileById[id] = f;
       }
       mutateUser((cur) => ({ ...cur, kb: [...cur.kb, ...added] }));
+      // Indicizzazione RAG (estrazione testo + embeddings) per ciascun file.
+      for (const meta of added) void indexKbFile(meta, fileById[meta.id]);
     })();
   };
 
@@ -567,7 +632,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (f?.path) {
       void supabase.storage.from(KB_BUCKET).remove([f.path]).catch(() => {});
     }
+    // Rimuove anche i frammenti indicizzati (RLS: solo i propri).
+    void supabase.from('kb_chunks').delete().eq('kb_file_id', id);
     mutateUser((cur) => ({ ...cur, kb: cur.kb.filter((x) => x.id !== id) }));
+  };
+
+  const askKb: StoreCtx['askKb'] = async (question) => {
+    const q = (question || '').trim();
+    if (!q) return { ok: false, error: 'Inserisci una domanda' };
+    try {
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      if (!token) return { ok: false, error: 'Sessione non valida' };
+      const res = await fetch('/api/kb/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ question: q }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, error: String(data?.error || `HTTP ${res.status}`) };
+      return {
+        ok: true,
+        answer: String(data?.answer || ''),
+        sources: Array.isArray(data?.sources) ? (data.sources as KbSource[]) : [],
+      };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
   };
 
   const connectSocial: StoreCtx['connectSocial'] = (network) =>
@@ -727,6 +817,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (paths.length) {
       void supabase.storage.from(KB_BUCKET).remove(paths).catch(() => {});
     }
+    void supabase.from('kb_chunks').delete().eq('user_id', u.id);
     void supabase.from('leads').delete().eq('user_id', u.id);
     const fresh: User = {
       ...u,
@@ -767,6 +858,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     topUp,
     addKb,
     removeKb,
+    askKb,
     connectSocial,
     scheduleSocialPosts,
     skipSocial,
