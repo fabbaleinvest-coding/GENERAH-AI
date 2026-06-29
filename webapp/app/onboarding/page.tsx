@@ -8,15 +8,16 @@ import { Guard } from '@/components/Guard';
 import { AppShell } from '@/components/AppShell';
 import { Container, Button, Badge, Photo, Spinner, cx } from '@/components/ui';
 
-type Step = 'kb' | 'meta' | 'director' | 'video' | 'photos' | 'preview' | 'targeting' | 'launch' | 'consult';
+type Step = 'kb' | 'social' | 'meta' | 'director' | 'video' | 'photos' | 'preview' | 'targeting' | 'launch' | 'consult';
 
-const ORDER: Step[] = ['kb', 'meta', 'director', 'video', 'photos', 'preview', 'targeting', 'launch', 'consult'];
+const ORDER: Step[] = ['kb', 'social', 'meta', 'director', 'video', 'photos', 'preview', 'targeting', 'launch', 'consult'];
 const PHASE2: Step[] = ['meta', 'director', 'video', 'photos', 'preview', 'targeting', 'launch'];
 
-function phaseOf(s: Step): 1 | 2 | 3 {
+function phaseOf(s: Step): 1 | 2 | 3 | 4 {
   if (s === 'kb') return 1;
-  if (s === 'consult') return 3;
-  return 2;
+  if (s === 'social') return 2;
+  if (s === 'consult') return 4;
+  return 3;
 }
 
 const fmtBytes = (b: number) => (b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(0)} KB` : `${(b / 1048576).toFixed(1)} MB`);
@@ -49,12 +50,146 @@ function buildCreative(settore: string, nome: string) {
   return { concept, caption, interests, audience: `Pubblico freddo nel raggio scelto, interessi: ${interests.join(', ')}. Esclusi clienti esistenti. Ottimizzazione su lead di qualità.` };
 }
 
+// ── Piano editoriale social simulato (Opus 4.8) ─────────────────────────────
+export interface PlanPost {
+  week: string;
+  format: string;
+  title: string;
+  bullets: string[];
+}
+
+function buildSocialPlan(settore: string, nome: string): PlanPost[] {
+  const s = settore.toLowerCase();
+  // Default trasversale (B2B/B2C/servizi)
+  let educa = {
+    title: '5 errori che ti fanno perdere clienti',
+    bullets: [
+      'Rispondi troppo tardi alle richieste',
+      'Non ricontatti chi non compra subito',
+      'Nessun follow-up dopo il primo contatto',
+      'Stesso messaggio per tutti, senza ascolto',
+    ],
+  };
+  let dietro = {
+    title: 'Come lavoriamo davvero per te',
+    bullets: [
+      'Ogni richiesta presa in carico in pochi secondi',
+      'Un percorso su misura per ogni cliente',
+      'Trasparenza totale in ogni fase',
+      'La qualità prima di tutto',
+    ],
+  };
+  let prova = {
+    title: 'I risultati parlano per noi',
+    bullets: [
+      'Nessun contatto lasciato senza risposta',
+      'Presenza attiva 24 ore su 24',
+      'Clienti seguiti dal primo "ciao" alla firma',
+      'Soddisfazione che si vede e si misura',
+    ],
+  };
+  let offerta = {
+    title: 'Questa settimana è il momento giusto',
+    bullets: [
+      'Una prima consulenza dedicata a te',
+      'Risposte chiare, zero impegno',
+      'Un piano costruito sul tuo obiettivo',
+      'Posti limitati: scrivici ora',
+    ],
+  };
+
+  if (s.includes('clinica') || s.includes('odonto') || s.includes('dent') || s.includes('veterinar') || s.includes('medic')) {
+    educa = {
+      title: '3 segnali da non sottovalutare',
+      bullets: [
+        'Rimandi i controlli da troppo tempo',
+        'Fastidi che ritornano e non passano',
+        'Dubbi a cui nessuno ti ha mai risposto',
+        'Prevenire costa meno che curare',
+      ],
+    };
+    dietro = {
+      title: 'Cosa trovi nel nostro studio',
+      bullets: [
+        'Accoglienza e ascolto, senza fretta',
+        'Tecnologie e protocolli aggiornati',
+        'Un piano di cura spiegato con chiarezza',
+        'Promemoria e richiami gestiti per te',
+      ],
+    };
+    prova = {
+      title: 'Perché i pazienti si fidano di noi',
+      bullets: [
+        'Risposte e prenotazioni anche fuori orario',
+        'Nessuna richiesta lasciata in attesa',
+        'Percorsi seguiti passo dopo passo',
+        'Recensioni che parlano da sole',
+      ],
+    };
+    offerta = {
+      title: 'Prima visita: prenota questa settimana',
+      bullets: [
+        'Valutazione iniziale dedicata',
+        'Preventivo chiaro e trasparente',
+        'Agenda flessibile, anche la sera',
+        'Posti limitati per la settimana',
+      ],
+    };
+  } else if (s.includes('e-commerce') || s.includes('ecommerce') || s.includes('negozio') || s.includes('retail') || s.includes('shop')) {
+    educa = {
+      title: 'Come scegliere senza sbagliare',
+      bullets: [
+        'I 3 dettagli che fanno la differenza',
+        'Gli errori più comuni da evitare',
+        'Come capire la qualità reale',
+        'Quando conviene davvero acquistare',
+      ],
+    };
+    offerta = {
+      title: 'Offerta della settimana',
+      bullets: [
+        'Selezione speciale a tempo limitato',
+        'Spedizione e reso senza pensieri',
+        'Assistenza che risponde subito',
+        'Fino a esaurimento scorte',
+      ],
+    };
+  } else if (s.includes('immobiliare') || s.includes('real estate')) {
+    educa = {
+      title: 'Vendere casa: 4 cose da sapere',
+      bullets: [
+        'Il prezzo giusto fin dal primo giorno',
+        'Le foto contano più di quanto pensi',
+        'Come filtrare i contatti seri',
+        'I tempi reali di una trattativa',
+      ],
+    };
+    offerta = {
+      title: 'Valutazione gratuita del tuo immobile',
+      bullets: [
+        'Stima di mercato aggiornata',
+        'Strategia di vendita su misura',
+        'Contatti qualificati, non curiosi',
+        'Prenotala questa settimana',
+      ],
+    };
+  }
+
+  return [
+    { week: 'Settimana 1', format: 'Educativo', ...educa },
+    { week: 'Settimana 2', format: 'Dietro le quinte', ...dietro },
+    { week: 'Settimana 3', format: 'Riprova sociale', ...prova },
+    { week: 'Settimana 4', format: 'Offerta', ...offerta },
+  ];
+}
+
 function StepRail({ current }: { current: Step }) {
   const ph = phaseOf(current);
   const items = [
     { n: 1, label: 'Knowledge base' },
-    { n: 2, label: 'Campagne Meta' },
-    { n: 3, label: 'Video-consulto' },
+    { n: 2, label: 'Contenuti social' },
+    { n: 3, label: 'Campagne Meta' },
+    { n: 4, label: 'Video-consulto' },
   ];
   return (
     <div className="flex items-center justify-center gap-3 sm:gap-5">
@@ -100,7 +235,7 @@ function IntegrationTag({ children }: { children: React.ReactNode }) {
 }
 
 function OnboardingInner() {
-  const { user, addKb, removeKb, connectMeta, skipPhase2, launchCampaign, useVideoConsult, finishOnboarding } = useStore();
+  const { user, addKb, removeKb, connectSocial, scheduleSocialPosts, skipSocial, connectMeta, skipPhase2, launchCampaign, useVideoConsult, finishOnboarding } = useStore();
   const router = useRouter();
   const [step, setStep] = useState<Step>('kb');
   const fileRef = useRef<HTMLInputElement>(null);
@@ -113,6 +248,13 @@ function OnboardingInner() {
   const [videoDone, setVideoDone] = useState(false);
   const [photoChoice, setPhotoChoice] = useState<'upload' | 'generate' | null>(null);
   const [photoReady, setPhotoReady] = useState(false);
+
+  // stato fase 2 · contenuti social
+  const socialPlan = useMemo(() => buildSocialPlan(user?.settore ?? '', user?.nome ?? ''), [user?.settore, user?.nome]);
+  const [socialGenerating, setSocialGenerating] = useState(false);
+  const [socialPlanReady, setSocialPlanReady] = useState(false);
+  const [socialScheduling, setSocialScheduling] = useState(false);
+  const [socialScheduled, setSocialScheduled] = useState(false);
 
   // config campagna
   const creative = useMemo(() => buildCreative(user?.settore ?? '', user?.nome ?? ''), [user?.settore, user?.nome]);
@@ -133,6 +275,27 @@ function OnboardingInner() {
   function skipToConsult() {
     skipPhase2();
     setStep('consult');
+  }
+  function skipSocialPhase() {
+    skipSocial();
+    setStep('meta');
+  }
+  function genSocialPlan() {
+    setSocialGenerating(true);
+    setTimeout(() => {
+      setSocialGenerating(false);
+      setSocialPlanReady(true);
+    }, 2300);
+  }
+  function scheduleSocial() {
+    setSocialScheduling(true);
+    setTimeout(() => {
+      scheduleSocialPosts(
+        socialPlan.map((p) => ({ week: p.week, format: p.format, title: p.title, bullets: p.bullets }))
+      );
+      setSocialScheduling(false);
+      setSocialScheduled(true);
+    }, 1800);
   }
 
   function onPickKb(e: React.ChangeEvent<HTMLInputElement>) {
@@ -215,7 +378,7 @@ function OnboardingInner() {
       {/* ════════ FASE 1 · KNOWLEDGE BASE ════════ */}
       {step === 'kb' && (
         <Panel>
-          <Badge tone="teal">Fase 1 di 3</Badge>
+          <Badge tone="teal">Fase 1 di 4</Badge>
           <h1 className="mt-4 font-display text-3xl font-semibold tracking-tight text-bone">Dai un cervello alla tua AI</h1>
           <p className="mt-3 leading-relaxed text-mist">
             Carica tutto il materiale del tuo business: brochure, listini, presentazioni, script di
@@ -267,9 +430,199 @@ function OnboardingInner() {
               {user.kb.length === 0 ? 'Nessun file caricato' : `${user.kb.length} file in memoria`}
             </span>
             <Button onClick={goNext} disabled={user.kb.length === 0}>
-              Continua alle campagne
+              Continua ai contenuti social
             </Button>
           </div>
+        </Panel>
+      )}
+
+      {/* ════════ FASE 2 · CONTENUTI SOCIAL ════════ */}
+      {step === 'social' && (
+        <Panel>
+          <div className="flex items-center justify-between">
+            <Badge tone="teal">Fase 2 di 4 · Contenuti social</Badge>
+            <button onClick={skipSocialPhase} className="font-mono text-[0.68rem] uppercase tracking-[0.14em] text-mist/60 transition hover:text-mist">
+              Salta questa fase →
+            </button>
+          </div>
+          <h1 className="mt-4 font-display text-3xl font-semibold tracking-tight text-bone">Pubblica ogni settimana, in automatico</h1>
+          <p className="mt-3 leading-relaxed text-mist">
+            Collega Instagram e Facebook: Opus 4.8 legge la tua knowledge base e crea un post a
+            settimana — testo persuasivo e infografica con bullet point generata con Nano Banana Pro —
+            programmandolo in automatico tramite Metricool. Tu approvi, l intelligenza pubblica.
+          </p>
+
+          <div className="mt-6 overflow-hidden rounded-2xl border border-white/10">
+            <Photo src={IMG.socialFeed} alt="Feed social brandizzato creato dall AI" overlay="bottom" ratio="aspect-[16/9]" rounded="">
+              <div className="flex h-full items-end p-5">
+                <div className="flex flex-wrap gap-2">
+                  <IntegrationTag>Opus 4.8 · copy</IntegrationTag>
+                  <IntegrationTag>Nano Banana Pro · infografiche</IntegrationTag>
+                  <IntegrationTag>Metricool · scheduling</IntegrationTag>
+                  <IntegrationTag>1 post / settimana</IntegrationTag>
+                </div>
+              </div>
+            </Photo>
+          </div>
+
+          {/* connessione account */}
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+            {[
+              {
+                net: 'ig' as const,
+                name: 'Instagram',
+                sub: 'Profilo business',
+                connected: user.igConnected,
+                icon: (
+                  <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
+                    <path d="M12 2.2c3.2 0 3.6 0 4.9.1 1.2.1 1.8.3 2.2.4.6.2 1 .5 1.4.9.4.4.7.8.9 1.4.2.4.4 1 .4 2.2.1 1.3.1 1.7.1 4.9s0 3.6-.1 4.9c-.1 1.2-.3 1.8-.4 2.2-.2.6-.5 1-.9 1.4-.4.4-.8.7-1.4.9-.4.2-1 .4-2.2.4-1.3.1-1.7.1-4.9.1s-3.6 0-4.9-.1c-1.2-.1-1.8-.3-2.2-.4-.6-.2-1-.5-1.4-.9-.4-.4-.7-.8-.9-1.4-.2-.4-.4-1-.4-2.2C2.2 15.6 2.2 15.2 2.2 12s0-3.6.1-4.9c.1-1.2.3-1.8.4-2.2.2-.6.5-1 .9-1.4.4-.4.8-.7 1.4-.9.4-.2 1-.4 2.2-.4C8.4 2.2 8.8 2.2 12 2.2zm0 3.2A6.6 6.6 0 1 0 18.6 12 6.6 6.6 0 0 0 12 5.4zm0 10.9A4.3 4.3 0 1 1 16.3 12 4.3 4.3 0 0 1 12 16.3zm6.8-11.2a1.5 1.5 0 1 1-1.5-1.5 1.5 1.5 0 0 1 1.5 1.5z" />
+                  </svg>
+                ),
+                tint: 'bg-[#E1306C]/15 text-[#ff5b95]',
+              },
+              {
+                net: 'fb' as const,
+                name: 'Facebook',
+                sub: 'Pagina aziendale',
+                connected: user.fbConnected,
+                icon: (
+                  <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
+                    <path d="M24 12c0-6.6-5.4-12-12-12S0 5.4 0 12c0 6 4.4 11 10.1 11.9v-8.4H7v-3.5h3.1V9.4c0-3 1.8-4.7 4.5-4.7 1.3 0 2.7.2 2.7.2v2.9h-1.5c-1.5 0-2 .9-2 1.9v2.3h3.4l-.5 3.5h-2.9V24C19.6 23 24 18 24 12z" />
+                  </svg>
+                ),
+                tint: 'bg-[#1877F2]/15 text-[#4596ff]',
+              },
+              {
+                net: 'metricool' as const,
+                name: 'Metricool',
+                sub: 'Programmazione',
+                connected: user.metricoolConnected,
+                icon: (
+                  <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.7">
+                    <rect x="3" y="4" width="18" height="17" rx="2" />
+                    <path d="M3 9h18M8 2v4M16 2v4M8 14h2m4 0h2M8 18h2m4 0h2" />
+                  </svg>
+                ),
+                tint: 'bg-teal-400/15 text-teal-200',
+              },
+            ].map((c) => (
+              <div key={c.net} className="rounded-2xl border border-white/8 bg-ink/40 p-4">
+                <div className={cx('flex h-10 w-10 items-center justify-center rounded-xl', c.tint)}>{c.icon}</div>
+                <p className="mt-3 text-[0.92rem] font-medium text-bone">{c.name}</p>
+                <p className="text-[0.76rem] text-mist/70">{c.sub}</p>
+                {c.connected ? (
+                  <span className="mt-3 inline-flex items-center gap-1.5 text-[0.78rem] font-medium text-teal-200">
+                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.6"><path d="M5 13l4 4L19 7" /></svg>
+                    Collegato
+                  </span>
+                ) : (
+                  <Button size="sm" variant="outline" className="mt-3 w-full" onClick={() => connectSocial(c.net)}>
+                    Connetti
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 font-mono text-[0.62rem] uppercase tracking-[0.12em] text-mist/45">
+            Punto di integrazione · in demo le connessioni sono simulate
+          </p>
+
+          {/* generazione piano editoriale */}
+          {(() => {
+            const allConnected = user.igConnected && user.fbConnected && user.metricoolConnected;
+            if (!socialPlanReady) {
+              return (
+                <div className="mt-7">
+                  {socialGenerating ? (
+                    <div className="flex flex-col items-center gap-4 rounded-2xl border border-white/8 bg-ink/40 py-12">
+                      <Spinner className="h-7 w-7 text-teal-300" />
+                      <p className="font-mono text-[0.78rem] uppercase tracking-[0.16em] text-teal-200/80 animate-pulse">
+                        Opus 4.8 · stesura piano editoriale + infografiche…
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center">
+                      <Button size="lg" onClick={genSocialPlan} disabled={!allConnected}>
+                        Genera il piano editoriale del mese
+                      </Button>
+                      {!allConnected && (
+                        <p className="mt-3 text-[0.78rem] text-mist/60">Collega Instagram, Facebook e Metricool per procedere.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+            return (
+              <div className="mt-7">
+                <p className="font-mono text-[0.64rem] uppercase tracking-[0.16em] text-teal-300/80">
+                  Piano editoriale · 4 post · 1 a settimana
+                </p>
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  {socialPlan.map((p) => (
+                    <div key={p.week} className="overflow-hidden rounded-2xl border border-white/10 bg-ink-900">
+                      <Photo src={IMG.socialPost} alt={`Infografica · ${p.title}`} overlay="none" ratio="aspect-[4/5]" rounded="">
+                        <div className="absolute inset-0 bg-gradient-to-t from-ink via-ink/85 to-ink/45" />
+                        <div className="relative flex h-full flex-col p-4">
+                          <div className="flex items-center gap-2">
+                            <span className="rounded-md bg-teal-400/90 px-2 py-0.5 font-mono text-[0.58rem] font-bold uppercase tracking-wider text-ink-900">{p.week}</span>
+                            <span className="rounded-md border border-white/20 px-2 py-0.5 font-mono text-[0.58rem] uppercase tracking-wider text-bone/80">{p.format}</span>
+                          </div>
+                          <div className="mt-auto">
+                            <p className="font-display text-[1.15rem] font-semibold leading-tight text-bone">{p.title}</p>
+                            <ul className="mt-2.5 space-y-1.5">
+                              {p.bullets.map((b) => (
+                                <li key={b} className="flex items-start gap-2 text-[0.8rem] leading-snug text-bone/90">
+                                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-teal-300" />
+                                  {b}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        </div>
+                      </Photo>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-5 flex flex-wrap gap-2">
+                  <IntegrationTag>Testo: Opus 4.8</IntegrationTag>
+                  <IntegrationTag>Infografica: Nano Banana Pro</IntegrationTag>
+                  <IntegrationTag>Programmazione: Metricool</IntegrationTag>
+                </div>
+
+                {!socialScheduled ? (
+                  <div className="mt-6 flex items-center justify-between">
+                    <button onClick={skipSocialPhase} className="font-mono text-[0.68rem] uppercase tracking-[0.14em] text-mist/60 transition hover:text-mist">
+                      Salta questa fase →
+                    </button>
+                    <Button size="lg" onClick={scheduleSocial} disabled={socialScheduling}>
+                      {socialScheduling ? (
+                        <>
+                          <Spinner className="h-4 w-4" /> Programmazione…
+                        </>
+                      ) : (
+                        'Programma i 4 post su Metricool'
+                      )}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="mt-6 rounded-2xl border border-teal-300/30 bg-teal-400/[0.05] p-6 text-center">
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-teal-400 text-ink-900">
+                      <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 13l4 4L19 7" /></svg>
+                    </div>
+                    <p className="mt-3 font-display text-xl font-semibold text-bone">4 post programmati!</p>
+                    <p className="mt-1.5 text-[0.9rem] text-mist">
+                      Un post a settimana è in coda su Metricool. Da qui in poi GENERAH AI pubblica da solo.
+                    </p>
+                    <Button className="mt-5" onClick={() => setStep('meta')}>
+                      Continua alle campagne
+                    </Button>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </Panel>
       )}
 
@@ -277,7 +630,7 @@ function OnboardingInner() {
       {step === 'meta' && (
         <Panel>
           <div className="flex items-center justify-between">
-            <Badge tone="teal">Fase 2 di 3 · Campagne Meta</Badge>
+            <Badge tone="teal">Fase 3 di 4 · Campagne Meta</Badge>
             <button onClick={skipToConsult} className="font-mono text-[0.68rem] uppercase tracking-[0.14em] text-mist/60 transition hover:text-mist">
               Salta questa fase →
             </button>
@@ -665,7 +1018,7 @@ function OnboardingInner() {
       {/* ════════ FASE 3 · VIDEO CONSULTO ════════ */}
       {step === 'consult' && (
         <Panel>
-          <Badge tone="teal">Fase 3 di 3 · Video-consulto</Badge>
+          <Badge tone="teal">Fase 4 di 4 · Video-consulto</Badge>
           <h1 className="mt-4 font-display text-3xl font-semibold tracking-tight text-bone">Prova il tuo consulente AI</h1>
           <p className="mt-3 leading-relaxed text-mist">
             Un video-consulto di 5 minuti, in omaggio una tantum. L avatar parla con la voce e le

@@ -25,6 +25,9 @@ export const IMG = {
   authHero: `${CDN}/hf_20260626_182916_956b4918-3943-43b6-a889-f12373775047.png`,
   consoleHero: `${CDN}/hf_20260626_183009_ea23da04-2642-4bd2-9695-ba8de6a4fc20.png`,
   adVertical: `${CDN}/hf_20260626_183004_8dc8c09c-e999-4bdf-a9bb-e4ca64fe78f2.png`,
+  // ── Fase 2 · Contenuti social (Higgsfield · Nano Banana Pro) ──
+  socialFeed: `${CDN}/hf_20260629_133350_44f2145b-de3e-44a5-93a7-06c57de71788.png`,
+  socialPost: `${CDN}/hf_20260629_133357_294cb78d-42d0-4feb-9178-e335d442917e.png`,
 } as const;
 
 export type ImageKey = keyof typeof IMG;

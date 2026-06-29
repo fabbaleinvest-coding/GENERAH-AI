@@ -27,6 +27,16 @@ export interface KbFile {
   addedAt: number;
 }
 
+export interface SocialPost {
+  id: string;
+  week: string; // es. "Settimana 1"
+  format: string; // es. "Educativo"
+  title: string;
+  bullets: string[];
+  scheduledFor: number; // timestamp di pubblicazione programmata
+  status: 'programmato';
+}
+
 export type LeadStatus =
   | 'nuovo'
   | 'contattato'
@@ -110,6 +120,11 @@ export interface User {
   meters: Record<MeterKey, Meter>;
   // onboarding
   kb: KbFile[];
+  igConnected: boolean;
+  fbConnected: boolean;
+  metricoolConnected: boolean;
+  socialPosts: SocialPost[];
+  socialSkipped: boolean;
   metaConnected: boolean;
   phase2Skipped: boolean;
   videoConsultUsed: boolean;
@@ -177,6 +192,11 @@ interface StoreCtx {
   topUp: (meter: MeterKey, qty: number) => void;
   addKb: (files: { name: string; size: number; kind: string }[]) => void;
   removeKb: (id: string) => void;
+  connectSocial: (network: 'ig' | 'fb' | 'metricool') => void;
+  scheduleSocialPosts: (
+    posts: { week: string; format: string; title: string; bullets: string[] }[]
+  ) => void;
+  skipSocial: () => void;
   connectMeta: () => void;
   skipPhase2: () => void;
   useVideoConsult: () => void;
@@ -272,6 +292,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       paidSetup: 0,
       meters: emptyMeters(),
       kb: [],
+      igConnected: false,
+      fbConnected: false,
+      metricoolConnected: false,
+      socialPosts: [],
+      socialSkipped: false,
       metaConnected: false,
       phase2Skipped: false,
       videoConsultUsed: false,
@@ -364,6 +389,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const removeKb: StoreCtx['removeKb'] = (id) =>
     mutateUser((u) => ({ ...u, kb: u.kb.filter((f) => f.id !== id) }));
 
+  const connectSocial: StoreCtx['connectSocial'] = (network) =>
+    mutateUser((u) => ({
+      ...u,
+      igConnected: network === 'ig' ? true : u.igConnected,
+      fbConnected: network === 'fb' ? true : u.fbConnected,
+      metricoolConnected: network === 'metricool' ? true : u.metricoolConnected,
+    }));
+
+  const scheduleSocialPosts: StoreCtx['scheduleSocialPosts'] = (posts) =>
+    mutateUser((u) => {
+      const WEEK = 7 * 24 * 60 * 60 * 1000;
+      const now = Date.now();
+      const scheduled: SocialPost[] = posts.map((p, i) => ({
+        id: uid(),
+        week: p.week,
+        format: p.format,
+        title: p.title,
+        bullets: p.bullets,
+        scheduledFor: now + (i + 1) * WEEK,
+        status: 'programmato' as const,
+      }));
+      return { ...u, socialPosts: scheduled };
+    });
+
+  const skipSocial = () => mutateUser((u) => ({ ...u, socialSkipped: true }));
+
   const connectMeta = () => mutateUser((u) => ({ ...u, metaConnected: true }));
   const skipPhase2 = () => mutateUser((u) => ({ ...u, phase2Skipped: true }));
   const useVideoConsult = () => mutateUser((u) => ({ ...u, videoConsultUsed: true }));
@@ -432,6 +483,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     topUp,
     addKb,
     removeKb,
+    connectSocial,
+    scheduleSocialPosts,
+    skipSocial,
     connectMeta,
     skipPhase2,
     useVideoConsult,
