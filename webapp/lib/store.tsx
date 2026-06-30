@@ -50,6 +50,7 @@ export interface SocialPostDraft {
   bullets: string[];
   caption?: string;
   imagePrompt?: string;
+  imageUrl?: string;
 }
 
 export interface SocialPost extends SocialPostDraft {
@@ -367,8 +368,26 @@ interface StoreCtx {
   removeKb: (id: string) => void;
   askKb: (question: string) => Promise<{ ok: boolean; answer?: string; sources?: KbSource[]; error?: string }>;
   connectSocial: (network: 'ig' | 'fb' | 'metricool') => void;
-  scheduleSocialPosts: (posts: SocialPostDraft[]) => void;
+  scheduleSocialPosts: (
+    posts: SocialPostDraft[]
+  ) => Promise<{ ok: boolean; remote: boolean; scheduled?: number; error?: string }>;
   generateSocialPlan: () => Promise<{ ok: boolean; posts?: SocialPostDraft[]; error?: string }>;
+  generateInfographic: (
+    draft: SocialPostDraft
+  ) => Promise<{ ok: boolean; configured: boolean; imageUrl?: string; error?: string }>;
+  connectMetricool: (
+    token: string,
+    mcUserId: string,
+    blogId?: string
+  ) => Promise<{
+    ok: boolean;
+    needBrand?: boolean;
+    brands?: { blogId: string; label: string; networks: string[] }[];
+    connected?: boolean;
+    brand?: { blogId: string; label: string; networks: string[] };
+    error?: string;
+  }>;
+  disconnectMetricool: () => Promise<void>;
   skipSocial: () => void;
   connectMeta: () => Promise<{ ok: boolean; error?: string }>;
   skipPhase2: () => void;
@@ -431,6 +450,14 @@ const ALERT_THRESHOLD = 0.1; // 10%
 const FIRST = ['Marco', 'Giulia', 'Luca', 'Sara', 'Andrea', 'Elena', 'Paolo', 'Chiara', 'Davide', 'Martina', 'Simone', 'Federica'];
 const LAST = ['Rossi', 'Bianchi', 'Ferrari', 'Russo', 'Esposito', 'Romano', 'Colombo', 'Ricci', 'Marino', 'Greco', 'Conti', 'De Luca'];
 const INTERESTS = ['Preventivo', 'Informazioni', 'Appuntamento', 'Catalogo', 'Disponibilità', 'Consulenza'];
+
+// Timestamp → "YYYY-MM-DDTHH:mm:ss" (ora locale, senza Z) alle 10:00, formato
+// richiesto da Metricool insieme alla timezone.
+function toLocalIso(ts: number): string {
+  const d = new Date(ts);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T10:00:00`;
+}
 
 function makeLead(source: string, channel: string): Lead {
   const f = FIRST[Math.floor(Math.random() * FIRST.length)];
@@ -740,23 +767,118 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       metricoolConnected: network === 'metricool' ? true : u.metricoolConnected,
     }));
 
-  const scheduleSocialPosts: StoreCtx['scheduleSocialPosts'] = (posts) =>
-    mutateUser((u) => {
-      const WEEK = 7 * 24 * 60 * 60 * 1000;
-      const now = Date.now();
-      const scheduled: SocialPost[] = posts.map((p, i) => ({
-        id: uid(),
-        week: p.week,
-        format: p.format,
-        title: p.title,
-        bullets: p.bullets,
-        caption: p.caption,
-        imagePrompt: p.imagePrompt,
-        scheduledFor: now + (i + 1) * WEEK,
-        status: 'programmato' as const,
+  // Programma i post: salva lo schedule locale (UI) e, se Metricool è collegato,
+  // crea davvero i post programmati via API Metricool con l'infografica allegata.
+  const scheduleSocialPosts: StoreCtx['scheduleSocialPosts'] = async (posts) => {
+    const u = userRef.current;
+    if (!u) return { ok: false, remote: false, error: 'Utente non disponibile' };
+    const WEEK = 7 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const scheduled: SocialPost[] = posts.map((p, i) => ({
+      id: uid(),
+      week: p.week,
+      format: p.format,
+      title: p.title,
+      bullets: p.bullets,
+      caption: p.caption,
+      imagePrompt: p.imagePrompt,
+      imageUrl: p.imageUrl,
+      scheduledFor: now + (i + 1) * WEEK,
+      status: 'programmato' as const,
+    }));
+    mutateUser((cur) => ({ ...cur, socialPosts: scheduled }));
+
+    if (!u.metricoolConnected) return { ok: true, remote: false };
+
+    try {
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const payload = scheduled.map((p) => ({
+        text:
+          p.caption && p.caption.trim()
+            ? p.caption
+            : [p.title, ...(p.bullets || [])].filter(Boolean).join('\n'),
+        dateTimeLocal: toLocalIso(p.scheduledFor),
+        mediaUrl: p.imageUrl || undefined,
       }));
-      return { ...u, socialPosts: scheduled };
-    });
+      const res = await fetch('/api/social/metricool/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ posts: payload, timezone: 'Europe/Rome', networks: ['instagram', 'facebook'] }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || d?.configured === false) return { ok: true, remote: false, error: d?.error };
+      const firstErr = Array.isArray(d?.results) ? d.results.find((r: any) => r?.error)?.error : undefined;
+      return { ok: !!d?.ok, remote: true, scheduled: d?.scheduled, error: d?.ok ? undefined : firstErr || d?.error };
+    } catch (e) {
+      return { ok: true, remote: false, error: (e as Error).message };
+    }
+  };
+
+  // Genera l'infografica del singolo post (Higgsfield · Nano Banana Pro).
+  const generateInfographic: StoreCtx['generateInfographic'] = async (draft) => {
+    try {
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      const res = await fetch('/api/social/infographic', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({
+          title: draft.title,
+          bullets: draft.bullets,
+          caption: draft.caption,
+          imagePrompt: draft.imagePrompt,
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, configured: true, error: String(d?.error || `HTTP ${res.status}`) };
+      return { ok: !!d?.ok, configured: d?.configured !== false, imageUrl: d?.imageUrl, error: d?.error };
+    } catch (e) {
+      return { ok: false, configured: false, error: (e as Error).message };
+    }
+  };
+
+  // Collega Metricool: senza blogId restituisce i brand; con blogId salva.
+  const connectMetricool: StoreCtx['connectMetricool'] = async (token, mcUserId, blogId) => {
+    try {
+      const t = (await supabase.auth.getSession()).data.session?.access_token;
+      if (!t) return { ok: false, error: 'Sessione non disponibile' };
+      const res = await fetch('/api/social/metricool/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` },
+        body: JSON.stringify({ token, mcUserId, blogId }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, error: String(d?.error || `HTTP ${res.status}`) };
+      if (d?.needBrand) return { ok: true, needBrand: true, brands: d.brands };
+      if (d?.connected) {
+        const nets: string[] = Array.isArray(d.brand?.networks) ? d.brand.networks : [];
+        mutateUser((cur) => ({
+          ...cur,
+          metricoolConnected: true,
+          igConnected: cur.igConnected || nets.includes('instagram'),
+          fbConnected: cur.fbConnected || nets.includes('facebook'),
+        }));
+        return { ok: true, connected: true, brand: d.brand };
+      }
+      return { ok: false, error: d?.error || 'Connessione non riuscita' };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  };
+
+  const disconnectMetricool: StoreCtx['disconnectMetricool'] = async () => {
+    try {
+      const t = (await supabase.auth.getSession()).data.session?.access_token;
+      if (t) {
+        await fetch('/api/social/metricool/status', {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${t}` },
+        });
+      }
+    } catch {
+      /* best-effort */
+    }
+    mutateUser((u) => ({ ...u, metricoolConnected: false }));
+  };
 
   // Generazione reale del piano editoriale via Opus 4.8 (route /api/social/plan),
   // ancorata alla knowledge base (retrieval) col token di sessione.
@@ -1250,6 +1372,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     connectSocial,
     scheduleSocialPosts,
     generateSocialPlan,
+    generateInfographic,
+    connectMetricool,
+    disconnectMetricool,
     skipSocial,
     connectMeta,
     skipPhase2,

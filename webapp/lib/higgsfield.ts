@@ -110,15 +110,16 @@ export interface HfStep {
   input: Record<string, unknown>;
 }
 
-/** Step 1 — immagine 9:16 di partenza (default: Higgsfield Soul). */
-export function imageStep(prompt: string): HfStep {
+/** Step 1 — immagine di partenza (default: Higgsfield Soul). `opts` permette di
+ *  forzare formato/aspetto (es. 4:5 per le infografiche social). */
+export function imageStep(prompt: string, opts?: { aspect?: string; size?: string }): HfStep {
   const endpoint = process.env.HIGGSFIELD_IMAGE_ENDPOINT || '/v1/text2image/soul';
   if (endpoint.includes('soul')) {
     return {
       endpoint,
       input: {
         prompt,
-        width_and_height: process.env.HIGGSFIELD_IMAGE_SIZE || '1080x1920',
+        width_and_height: opts?.size || process.env.HIGGSFIELD_IMAGE_SIZE || '1080x1920',
         quality: process.env.HIGGSFIELD_IMAGE_QUALITY || '720p',
         batch_size: 1,
         enhance_prompt: true,
@@ -130,7 +131,7 @@ export function imageStep(prompt: string): HfStep {
     endpoint,
     input: {
       prompt,
-      aspect_ratio: process.env.HIGGSFIELD_IMAGE_ASPECT || '9:16',
+      aspect_ratio: opts?.aspect || process.env.HIGGSFIELD_IMAGE_ASPECT || '9:16',
     },
   };
 }

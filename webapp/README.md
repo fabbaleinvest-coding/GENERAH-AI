@@ -210,3 +210,32 @@ Setup:
 
 La singola pagina viene iscritta automaticamente agli eventi `leadgen` al momento
 del collegamento OAuth. Nel CRM il pulsante **Aggiorna** ricarica i lead arrivati.
+
+### Social: infografiche (Nano Banana Pro) + programmazione Metricool
+
+La Fase 2 genera un piano editoriale reale (Opus 4.8 + RAG dalla knowledge base),
+crea per ogni post un'**infografica** con Higgsfield (Nano Banana Pro) e la
+**programma** su Instagram/Facebook tramite **Metricool**.
+
+Flusso: `/api/social/plan` (Opus → post settimanali con bullet/caption/imagePrompt)
+→ `/api/social/infographic` (Higgsfield, immagine 4:5 con i punti chiave come testo)
+→ `/api/social/metricool/schedule` (un post a settimana, con l'infografica allegata).
+
+Infografiche (env, opzionali — senza, l'app resta in dimostrativo con i placeholder):
+- credenziali Higgsfield (`HIGGSFIELD_KEY_ID` + `HIGGSFIELD_KEY_SECRET`, oppure
+  `HIGGSFIELD_CREDENTIALS=id:secret`);
+- per usare Nano Banana Pro imposta `HIGGSFIELD_IMAGE_ENDPOINT` allo slug del modello
+  (il default è Soul); il formato è forzato a 4:5 per il social.
+
+Metricool (per-utente, niente env obbligatorie):
+1. esegui `supabase/migrations/0004_metricool_connections.sql`;
+2. in onboarding l'admin incolla **Token API** + **User ID** Metricool (Impostazioni
+   account → API, richiede piano **Advanced**) e sceglie il **brand** (blogId);
+   il token è cifrato a riposo (`METRICOOL_TOKEN_SECRET`, consigliata);
+3. Instagram/Facebook si collegano **dentro** il brand Metricool: l'app programma solo
+   sulle reti già connesse a quel brand.
+
+Note: le immagini passano per l'endpoint `normalize` di Metricool (così sono ospitate
+e non scadono); `publicationDate` usa la timezone `Europe/Rome` (override
+`METRICOOL_TIMEZONE`). Senza connessione Metricool la programmazione resta una bozza
+locale dimostrativa.

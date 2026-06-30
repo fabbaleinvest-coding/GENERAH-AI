@@ -238,7 +238,7 @@ function IntegrationTag({ children }: { children: React.ReactNode }) {
 }
 
 function OnboardingInner() {
-  const { user, addKb, removeKb, connectSocial, scheduleSocialPosts, generateSocialPlan, skipSocial, connectMeta, skipPhase2, launchCampaign, generateCampaignBrief, generateAdVideo, publishMetaCampaign, buildLookalike, useVideoConsult, finishOnboarding } = useStore();
+  const { user, addKb, removeKb, connectSocial, scheduleSocialPosts, generateSocialPlan, generateInfographic, connectMetricool, disconnectMetricool, skipSocial, connectMeta, skipPhase2, launchCampaign, generateCampaignBrief, generateAdVideo, publishMetaCampaign, buildLookalike, useVideoConsult, finishOnboarding } = useStore();
   const router = useRouter();
   const [step, setStep] = useState<Step>('kb');
   const fileRef = useRef<HTMLInputElement>(null);
@@ -264,6 +264,16 @@ function OnboardingInner() {
   const [socialScheduling, setSocialScheduling] = useState(false);
   const [socialScheduled, setSocialScheduled] = useState(false);
   const [aiPlan, setAiPlan] = useState<SocialPostDraft[] | null>(null);
+  const [infographics, setInfographics] = useState<Record<string, { url?: string; busy: boolean; err?: string }>>({});
+  const [mcOpen, setMcOpen] = useState(false);
+  const [mcToken, setMcToken] = useState('');
+  const [mcUserId, setMcUserId] = useState('');
+  const [mcBrands, setMcBrands] = useState<{ blogId: string; label: string; networks: string[] }[] | null>(null);
+  const [mcBlogId, setMcBlogId] = useState('');
+  const [mcBusy, setMcBusy] = useState(false);
+  const [mcErr, setMcErr] = useState('');
+  const [scheduleRemote, setScheduleRemote] = useState<boolean | null>(null);
+  const [scheduleErr, setScheduleErr] = useState('');
   const plan: PlanPost[] = aiPlan ?? socialPlan;
 
   // config campagna
@@ -301,30 +311,81 @@ function OnboardingInner() {
     skipSocial();
     setStep('meta');
   }
+  async function genInfographicsFor(posts: SocialPostDraft[]) {
+    for (const p of posts) {
+      setInfographics((m) => ({ ...m, [p.week]: { busy: true } }));
+      const r = await generateInfographic(p);
+      setInfographics((m) => ({
+        ...m,
+        [p.week]: { busy: false, url: r.imageUrl, err: r.ok ? undefined : r.configured ? r.error : undefined },
+      }));
+      if (r.imageUrl) {
+        setAiPlan((cur) => (cur ? cur.map((x) => (x.week === p.week ? { ...x, imageUrl: r.imageUrl } : x)) : cur));
+      }
+    }
+  }
   async function genSocialPlan() {
     setSocialGenerating(true);
     const r = await generateSocialPlan();
-    if (r.ok && r.posts && r.posts.length) setAiPlan(r.posts);
-    // se l'AI non è disponibile (es. chiave mancante), si usa il piano di fallback
+    const posts: SocialPostDraft[] =
+      r.ok && r.posts && r.posts.length
+        ? r.posts
+        : socialPlan.map((p) => ({ week: p.week, format: p.format, title: p.title, bullets: p.bullets }));
+    setAiPlan(posts);
     setSocialGenerating(false);
     setSocialPlanReady(true);
+    void genInfographicsFor(posts);
   }
-  function scheduleSocial() {
+  async function scheduleSocial() {
     setSocialScheduling(true);
-    setTimeout(() => {
-      scheduleSocialPosts(
-        plan.map((p) => ({
-          week: p.week,
-          format: p.format,
-          title: p.title,
-          bullets: p.bullets,
-          caption: (p as SocialPostDraft).caption,
-          imagePrompt: (p as SocialPostDraft).imagePrompt,
-        }))
-      );
-      setSocialScheduling(false);
-      setSocialScheduled(true);
-    }, 1800);
+    setScheduleErr('');
+    const r = await scheduleSocialPosts(
+      plan.map((p) => ({
+        week: p.week,
+        format: p.format,
+        title: p.title,
+        bullets: p.bullets,
+        caption: (p as SocialPostDraft).caption,
+        imagePrompt: (p as SocialPostDraft).imagePrompt,
+        imageUrl: infographics[p.week]?.url || (p as SocialPostDraft).imageUrl,
+      }))
+    );
+    setSocialScheduling(false);
+    setScheduleRemote(r.remote);
+    if (!r.ok) setScheduleErr(r.error || 'Programmazione non riuscita');
+    else if (r.remote && r.error) setScheduleErr(r.error);
+    setSocialScheduled(true);
+  }
+  async function mcVerify() {
+    setMcBusy(true);
+    setMcErr('');
+    const r = await connectMetricool(mcToken.trim(), mcUserId.trim());
+    setMcBusy(false);
+    if (!r.ok) {
+      setMcErr(r.error || 'Verifica non riuscita');
+      return;
+    }
+    if (r.needBrand && r.brands) {
+      setMcBrands(r.brands);
+      setMcBlogId(r.brands[0]?.blogId || '');
+    } else if (r.connected) {
+      setMcOpen(false);
+    }
+  }
+  async function mcConnect() {
+    if (!mcBlogId) return;
+    setMcBusy(true);
+    setMcErr('');
+    const r = await connectMetricool(mcToken.trim(), mcUserId.trim(), mcBlogId);
+    setMcBusy(false);
+    if (!r.ok) {
+      setMcErr(r.error || 'Connessione non riuscita');
+      return;
+    }
+    if (r.connected) {
+      setMcOpen(false);
+      setMcBrands(null);
+    }
   }
 
   function onPickKb(e: React.ChangeEvent<HTMLInputElement>) {
@@ -608,20 +669,79 @@ function OnboardingInner() {
                     Collegato
                   </span>
                 ) : (
-                  <Button size="sm" variant="outline" className="mt-3 w-full" onClick={() => connectSocial(c.net)}>
-                    Connetti
+                  <Button size="sm" variant="outline" className="mt-3 w-full" onClick={() => (c.net === 'metricool' ? setMcOpen(true) : connectSocial(c.net))}>
+                    {c.net === 'metricool' ? 'Collega Metricool' : 'Connetti'}
                   </Button>
                 )}
               </div>
             ))}
           </div>
+          {mcOpen && !user.metricoolConnected && (
+            <div className="mt-4 rounded-2xl border border-teal-300/25 bg-teal-400/[0.04] p-5">
+              <p className="text-[0.9rem] font-medium text-bone">Collega il tuo account Metricool</p>
+              <p className="mt-1 text-[0.78rem] text-mist/70">
+                Token API e User ID si trovano in Metricool → Impostazioni account → API (richiede piano Advanced).
+              </p>
+              {!mcBrands ? (
+                <div className="mt-4 space-y-2.5">
+                  <input
+                    placeholder="Token API Metricool"
+                    value={mcToken}
+                    onChange={(e) => setMcToken(e.target.value)}
+                    className="w-full rounded-xl border border-white/10 bg-ink/70 px-3 py-2.5 text-[0.88rem] text-bone placeholder:text-mist/40 focus:border-teal-300/60 focus:outline-none"
+                  />
+                  <input
+                    placeholder="User ID Metricool"
+                    value={mcUserId}
+                    onChange={(e) => setMcUserId(e.target.value)}
+                    className="w-full rounded-xl border border-white/10 bg-ink/70 px-3 py-2.5 text-[0.88rem] text-bone placeholder:text-mist/40 focus:border-teal-300/60 focus:outline-none"
+                  />
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" onClick={mcVerify} disabled={mcBusy || !mcToken.trim() || !mcUserId.trim()}>
+                      {mcBusy ? <Spinner className="h-4 w-4" /> : 'Verifica e trova i brand'}
+                    </Button>
+                    <button onClick={() => { setMcOpen(false); setMcErr(''); }} className="text-[0.8rem] text-mist/60 hover:text-mist">
+                      Annulla
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 space-y-2.5">
+                  <select
+                    value={mcBlogId}
+                    onChange={(e) => setMcBlogId(e.target.value)}
+                    className="w-full rounded-xl border border-white/10 bg-ink/70 px-3 py-2.5 text-[0.88rem] text-bone focus:border-teal-300/60 focus:outline-none"
+                  >
+                    {mcBrands.map((b) => (
+                      <option key={b.blogId} value={b.blogId} className="bg-ink-900">
+                        {b.label}{b.networks.length ? ` · ${b.networks.join(', ')}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" onClick={mcConnect} disabled={mcBusy || !mcBlogId}>
+                      {mcBusy ? <Spinner className="h-4 w-4" /> : 'Collega questo brand'}
+                    </Button>
+                    <button onClick={() => setMcBrands(null)} className="text-[0.8rem] text-mist/60 hover:text-mist">
+                      Indietro
+                    </button>
+                  </div>
+                </div>
+              )}
+              {mcErr && <p className="mt-2.5 text-[0.82rem] text-coral">{mcErr}</p>}
+            </div>
+          )}
+          {user.metricoolConnected && (
+            <button onClick={() => disconnectMetricool()} className="mt-3 font-mono text-[0.62rem] uppercase tracking-[0.12em] text-mist/45 hover:text-mist/70">
+              Scollega Metricool
+            </button>
+          )}
           <p className="mt-3 font-mono text-[0.62rem] uppercase tracking-[0.12em] text-mist/45">
-            Punto di integrazione · in demo le connessioni sono simulate
+            Metricool è reale (token API); Instagram e Facebook si collegano dentro il tuo brand Metricool
           </p>
 
           {/* generazione piano editoriale */}
           {(() => {
-            const allConnected = user.igConnected && user.fbConnected && user.metricoolConnected;
             if (!socialPlanReady) {
               return (
                 <div className="mt-7">
@@ -634,11 +754,11 @@ function OnboardingInner() {
                     </div>
                   ) : (
                     <div className="flex flex-col items-center">
-                      <Button size="lg" onClick={genSocialPlan} disabled={!allConnected}>
+                      <Button size="lg" onClick={genSocialPlan}>
                         Genera il piano editoriale del mese
                       </Button>
-                      {!allConnected && (
-                        <p className="mt-3 text-[0.78rem] text-mist/60">Collega Instagram, Facebook e Metricool per procedere.</p>
+                      {!user.metricoolConnected && (
+                        <p className="mt-3 text-[0.78rem] text-mist/60">Collega Metricool per programmare davvero i post (altrimenti resta una bozza dimostrativa).</p>
                       )}
                     </div>
                   )}
@@ -651,30 +771,56 @@ function OnboardingInner() {
                   Piano editoriale · 4 post · 1 a settimana
                 </p>
                 <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  {plan.map((p) => (
-                    <div key={p.week} className="overflow-hidden rounded-2xl border border-white/10 bg-ink-900">
-                      <Photo src={IMG.socialPost} alt={`Infografica · ${p.title}`} overlay="none" ratio="aspect-[4/5]" rounded="">
-                        <div className="absolute inset-0 bg-gradient-to-t from-ink via-ink/85 to-ink/45" />
-                        <div className="relative flex h-full flex-col p-4">
-                          <div className="flex items-center gap-2">
-                            <span className="rounded-md bg-teal-400/90 px-2 py-0.5 font-mono text-[0.58rem] font-bold uppercase tracking-wider text-ink-900">{p.week}</span>
-                            <span className="rounded-md border border-white/20 px-2 py-0.5 font-mono text-[0.58rem] uppercase tracking-wider text-bone/80">{p.format}</span>
+                  {plan.map((p) => {
+                    const info = infographics[p.week];
+                    if (info?.url) {
+                      return (
+                        <div key={p.week} className="overflow-hidden rounded-2xl border border-white/10 bg-ink-900">
+                          <div className="relative aspect-[4/5] w-full">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={info.url} alt={`Infografica · ${p.title}`} className="h-full w-full object-cover" />
+                            <div className="absolute left-3 top-3 flex items-center gap-2">
+                              <span className="rounded-md bg-teal-400/90 px-2 py-0.5 font-mono text-[0.58rem] font-bold uppercase tracking-wider text-ink-900">{p.week}</span>
+                              <span className="rounded-md border border-white/30 bg-ink/40 px-2 py-0.5 font-mono text-[0.58rem] uppercase tracking-wider text-bone/90 backdrop-blur">{p.format}</span>
+                            </div>
                           </div>
-                          <div className="mt-auto">
-                            <p className="font-display text-[1.15rem] font-semibold leading-tight text-bone">{p.title}</p>
-                            <ul className="mt-2.5 space-y-1.5">
-                              {p.bullets.map((b) => (
-                                <li key={b} className="flex items-start gap-2 text-[0.8rem] leading-snug text-bone/90">
-                                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-teal-300" />
-                                  {b}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
+                          {(p as SocialPostDraft).caption && (
+                            <p className="p-3 text-[0.78rem] leading-snug text-mist/80">{(p as SocialPostDraft).caption}</p>
+                          )}
                         </div>
-                      </Photo>
-                    </div>
-                  ))}
+                      );
+                    }
+                    return (
+                      <div key={p.week} className="overflow-hidden rounded-2xl border border-white/10 bg-ink-900">
+                        <Photo src={IMG.socialPost} alt={`Infografica · ${p.title}`} overlay="none" ratio="aspect-[4/5]" rounded="">
+                          <div className="absolute inset-0 bg-gradient-to-t from-ink via-ink/85 to-ink/45" />
+                          {info?.busy && (
+                            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-ink/55 backdrop-blur-[2px]">
+                              <Spinner className="h-6 w-6 text-teal-300" />
+                              <span className="font-mono text-[0.58rem] uppercase tracking-[0.14em] text-teal-200/80">Nano Banana Pro…</span>
+                            </div>
+                          )}
+                          <div className="relative flex h-full flex-col p-4">
+                            <div className="flex items-center gap-2">
+                              <span className="rounded-md bg-teal-400/90 px-2 py-0.5 font-mono text-[0.58rem] font-bold uppercase tracking-wider text-ink-900">{p.week}</span>
+                              <span className="rounded-md border border-white/20 px-2 py-0.5 font-mono text-[0.58rem] uppercase tracking-wider text-bone/80">{p.format}</span>
+                            </div>
+                            <div className="mt-auto">
+                              <p className="font-display text-[1.15rem] font-semibold leading-tight text-bone">{p.title}</p>
+                              <ul className="mt-2.5 space-y-1.5">
+                                {p.bullets.map((b) => (
+                                  <li key={b} className="flex items-start gap-2 text-[0.8rem] leading-snug text-bone/90">
+                                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-teal-300" />
+                                    {b}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                        </Photo>
+                      </div>
+                    );
+                  })}
                 </div>
 
                 <div className="mt-5 flex flex-wrap gap-2">
@@ -693,8 +839,10 @@ function OnboardingInner() {
                         <>
                           <Spinner className="h-4 w-4" /> Programmazione…
                         </>
+                      ) : user.metricoolConnected ? (
+                        'Programma i post su Metricool'
                       ) : (
-                        'Programma i 4 post su Metricool'
+                        'Programma i post (demo)'
                       )}
                     </Button>
                   </div>
@@ -703,10 +851,15 @@ function OnboardingInner() {
                     <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-teal-400 text-ink-900">
                       <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 13l4 4L19 7" /></svg>
                     </div>
-                    <p className="mt-3 font-display text-xl font-semibold text-bone">4 post programmati!</p>
-                    <p className="mt-1.5 text-[0.9rem] text-mist">
-                      Un post a settimana è in coda su Metricool. Da qui in poi GENERAH AI pubblica da solo.
+                    <p className="mt-3 font-display text-xl font-semibold text-bone">
+                      {scheduleRemote ? 'Post programmati su Metricool!' : 'Piano pronto!'}
                     </p>
+                    <p className="mt-1.5 text-[0.9rem] text-mist">
+                      {scheduleRemote
+                        ? 'Un post a settimana è in coda su Metricool. Da qui in poi GENERAH AI pubblica da solo.'
+                        : 'Il piano è pronto. Collega Metricool per metterlo davvero in coda di pubblicazione.'}
+                    </p>
+                    {scheduleErr && <p className="mt-2 text-[0.82rem] text-coral">{scheduleErr}</p>}
                     <Button className="mt-5" onClick={() => setStep('meta')}>
                       Continua alle campagne
                     </Button>
