@@ -421,3 +421,51 @@ i DID compaiono come `suspended` → *Attiva* (imposta phone_number_id + stato
 - Testa prima in **sandbox** (`DIDWW_API_BASE` sandbox): nessun addebito. Gli
   ordini in produzione sono reali e riservati agli admin.
 - Serve `SUPABASE_SERVICE_ROLE_KEY` (le scritture sul pool bypassano la RLS).
+
+### Voce · centralino AI inbound (OpenAI Realtime via SIP/DIDWW)
+
+Quando un cliente chiama il numero DIDWW dell'azienda, risponde l'AI (stesso
+consulente del video-consulto, istruzioni dalla knowledge base) e i minuti
+scalano dal meter `phone`.
+
+**Architettura (inbound).** DIDWW instrada il DID verso `sip:<project_id>@sip.api.openai.com`.
+OpenAI invia il webhook `realtime.call.incoming` → `/api/voice/webhook` verifica
+la firma, mappa il numero chiamato (`To`) all'azienda via `wa_numbers`, controlla
+i minuti residui e risponde con `/v1/realtime/calls/{id}/accept` passando le
+istruzioni (RAG service-role sulla KB + settore). L'audio RTP va diretto tra
+DIDWW e OpenAI: **nessun ponte media** lato server (compatibile con Vercel).
+
+**Env**
+
+    OPENAI_API_KEY            chiave OpenAI (Realtime)
+    OPENAI_WEBHOOK_SECRET     secret firma webhook (whsec_...)
+    OPENAI_REALTIME_MODEL     opzionale (default gpt-realtime)
+    OPENAI_REALTIME_VOICE     opzionale (default marin)
+    SUPABASE_SERVICE_ROLE_KEY necessaria (accept + metering server-side)
+
+**Setup (una tantum)**
+
+1. OpenAI: abilita SIP sul progetto, imposta il webhook su
+   `https://<dominio>/api/voice/webhook` e copia `OPENAI_WEBHOOK_SECRET`.
+2. DIDWW: crea un voice IN trunk che instrada il DID verso
+   `sip:<project_id>@sip.api.openai.com` (eventuale allowlist IP lato OpenAI).
+3. Il numero deve essere `assigned` nel pool (`wa_numbers`): così la mappatura
+   numero→azienda funziona.
+
+**Metering.** All'`accept` si addebita 1 minuto minimo e si registra la chiamata
+in `voice_calls`; alla fine si riconcilia sui minuti reali (`consume_meter_for`,
+service-role). Migrazione `0010_voice.sql`: `consume_meter_for`,
+`match_kb_chunks_for` (RAG per utente esplicito), tabella `voice_calls`.
+
+**Outbound (l'AI chiama i lead) — non incluso.** Richiede di *originare* e
+*bridgiare* la chiamata verso `sip:<project>@sip.api.openai.com`. DIDWW offre
+trunk SIP ma **non** una call-control API stile Twilio: serve un SBC/softswitch
+(Asterisk/Jambonz/Kamailio) o un provider con call-control. È infrastruttura
+fuori dal repo; l'adapter espone già `referCall`/`hangupCall` per il trasferimento
+a operatore umano e la chiusura. In alternativa si possono usare le integrazioni
+native DIDWW (ElevenLabs/Vapi) per l'outbound.
+
+Nota: i tool in tempo reale durante la chiamata (es. salvataggio lead a CRM
+mentre si parla) richiedono un worker WebSocket persistente
+(`wss://api.openai.com/v1/realtime?call_id=...`), non ospitabile su funzioni
+serverless: va aggiunto come servizio separato.
