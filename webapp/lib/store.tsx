@@ -356,7 +356,6 @@ function userToRow(u: User) {
     feature_plan: u.featurePlan,
     paid_canone: u.paidCanone,
     paid_setup: u.paidSetup,
-    meters: u.meters,
     kb: u.kb,
     ig_connected: u.igConnected,
     fb_connected: u.fbConnected,
@@ -645,6 +644,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const activatePlan: StoreCtx['activatePlan'] = (planId, code, mode) => {
     const priced = priceWithDiscount(planId, code);
     const fp = priced.featurePlan;
+    // Ottimistico locale (incl. meters per UI immediata). I campi del profilo
+    // vengono persistiti da mutateUser; i `meters` NO (colonna blindata): li
+    // alloca in modo autorevole la funzione DB provision_plan_meters.
     mutateUser((u) => ({
       ...u,
       plan: planId,
@@ -661,6 +663,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
       alerts: [],
     }));
+    // Provisioning autorevole dei meter lato server + riconciliazione.
+    void (async () => {
+      try {
+        const { data, error } = await supabase.rpc('provision_plan_meters', {
+          p_plan_id: planId,
+          p_feature_plan_id: fp.id,
+        });
+        if (error || !data) return;
+        setUser((prev) => (prev ? { ...prev, meters: data as Record<MeterKey, Meter> } : prev));
+      } catch {
+        // offline: resta l'allocazione ottimistica locale
+      }
+    })();
   };
 
   // Consumo meter: aggiornamento ottimistico locale (UI reattiva) + consumo
@@ -716,6 +731,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
 
   const topUp: StoreCtx['topUp'] = (meter, qty) => {
+    // Ottimistico locale + svuotamento alert (persistito). I `meters` reali li
+    // aggiorna la funzione DB topup_meter (colonna blindata lato client).
     mutateUser((u) => {
       const m = u.meters[meter];
       return {
@@ -724,6 +741,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         alerts: u.alerts.filter((a) => a.meter !== meter),
       };
     });
+    void (async () => {
+      try {
+        const { data, error } = await supabase.rpc('topup_meter', { p_meter: meter, p_qty: qty });
+        if (error || !data) return;
+        setUser((prev) => (prev ? { ...prev, meters: data as Record<MeterKey, Meter> } : prev));
+      } catch {
+        // offline: resta l'aumento ottimistico locale
+      }
+    })();
   };
 
   const setKbStatus = (id: string, patch: Partial<KbFile>) =>

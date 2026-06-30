@@ -287,9 +287,29 @@ server e mostra l'alert 10% se restituito. Anche il consumo del meter `ads`
 Setup: esegui `supabase/migrations/0006_consume_meter.sql` (crea la funzione).
 Nessuna nuova env.
 
-Nota (hardening successivo, consigliato): la colonna `profiles.meters` è ancora
-scrivibile dal client via upsert del profilo (provisioning del piano e top-up).
-Per renderla totalmente a prova di manomissione si può aggiungere un trigger che
-consenta la modifica di `meters` solo alla funzione `consume_meter` (e a una
-funzione di provisioning/top-up dedicata), così il client non può azzerare i
-contatori.
+#### Hardening della colonna `meters`
+
+La colonna `profiles.meters` è **blindata**: è modificabile SOLO dalle funzioni
+server `SECURITY DEFINER` (`consume_meter`, `provision_plan_meters`,
+`topup_meter`), di proprietà di `postgres`. Un trigger `protect_meters` su
+`profiles` intercetta `INSERT`/`UPDATE`: quando il ruolo è un ruolo client di
+PostgREST (`authenticated`/`anon`) ripristina `meters` (UPDATE) o lo forza
+azzerato (INSERT). Dentro le funzioni definer `current_user = postgres`, quindi
+i loro update passano. Risultato: il client **non può** azzerare `used` né
+gonfiare `total` con un upsert del profilo.
+
+Conseguenze lato app:
+- `userToRow` non invia più `meters` (la colonna non è scrivibile dal client).
+- attivazione piano → `provision_plan_meters(plan, featurePlan)` alloca i totali
+  (used=0); i totali sono identici a `lib/plans.ts`, il featurePlan ammette il
+  piano o un tier superiore (codici upgrade).
+- top-up → `topup_meter(meter, qty)` aumenta `total`.
+- consumo → `consume_meter(meter, amount)` (vedi sopra).
+
+Setup: esegui `supabase/migrations/0007_meters_hardening.sql` dopo la 0006.
+
+Nota pagamenti: `topup_meter` e `provision_plan_meters` si fidano ancora del
+contesto applicativo (il pagamento non è verificato server-side). Il gating
+reale arriverà con l'integrazione PayPal, che autorizzerà queste due RPC solo a
+fronte di una transazione confermata.
+
