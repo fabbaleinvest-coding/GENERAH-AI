@@ -94,18 +94,56 @@ const NETWORK_KEYS = [
   'gmb',
   'threads',
   'bluesky',
+  'twitch',
 ];
+const KNOWN_NETWORKS = new Set(NETWORK_KEYS);
+
+// Normalizza i nomi rete usati da Metricool sul nostro vocabolario.
+function normalizeNetwork(raw: string): string {
+  const n = raw.toLowerCase().trim();
+  const map: Record<string, string> = {
+    fb: 'facebook',
+    ig: 'instagram',
+    x: 'twitter',
+    yt: 'youtube',
+    google: 'gmb',
+    googlebusiness: 'gmb',
+    googlemybusiness: 'gmb',
+    gmb: 'gmb',
+  };
+  return map[n] || n;
+}
 
 function extractNetworks(b: any): string[] {
   const out = new Set<string>();
+
+  // Forma reale dell'API: le reti collegate stanno in `networksData`, con chiavi
+  // tipo facebookData / instagramData / tiktokData … e valore valorizzato
+  // (id pagina o handle) quando la rete è collegata.
+  const nd = b?.networksData;
+  if (nd && typeof nd === 'object') {
+    for (const [k, v] of Object.entries(nd)) {
+      const m = /^(.+?)data$/i.exec(k);
+      if (!m) continue;
+      if (v === null || v === undefined || v === '' || v === false) continue;
+      const net = normalizeNetwork(m[1]);
+      if (KNOWN_NETWORKS.has(net)) out.add(net);
+    }
+  }
+
+  // Fallback per altre forme (booleani/oggetti a livello top, o connectedNetworks).
   for (const k of NETWORK_KEYS) {
     const v = b?.[k];
-    // Metricool espone le reti come oggetto/booleano a seconda della versione
-    if (v === true) out.add(k === 'gmb' ? 'gmb' : k);
+    if (v === true) out.add(k);
     else if (v && typeof v === 'object' && (v.connected || v.id || v.url || v.picture)) out.add(k);
   }
   if (Array.isArray(b?.connectedNetworks)) {
-    for (const n of b.connectedNetworks) if (typeof n === 'string') out.add(n.toLowerCase());
+    for (const n of b.connectedNetworks) {
+      if (typeof n === 'string') {
+        const net = normalizeNetwork(n);
+        if (KNOWN_NETWORKS.has(net)) out.add(net);
+      }
+    }
   }
   return Array.from(out);
 }
