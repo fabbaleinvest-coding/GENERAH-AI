@@ -359,3 +359,24 @@ Resta da fare (prossimi step): UI dashboard del pool + vista conversazioni,
 risposta AI automatica (Opus + RAG, già disponibile la bozza WhatsApp in
 `lib/crmAi.ts`), assegnazione automatica del numero all'attivazione del piano, e
 gli adapter DIDWW (ordine numeri) e voce (trunk SIP DIDWW ↔ OpenAI Realtime).
+
+### Assegnazione automatica del numero WhatsApp
+
+All'attivazione di un piano, `activatePlan` chiama `ensureWaNumber()` che invoca
+la RPC `assign_wa_number`: assegna all'utente un numero libero del pool (idempotente).
+Il numero assegnato viene caricato anche al login (`loadWaNumber`, RLS su
+`wa_numbers`) e mostrato nella dashboard (card "Numero WhatsApp": attivo /
+in attesa / richiedi).
+
+Se il pool è vuoto la richiesta resta **in attesa** e viene registrata in
+`wa_number_requests` (migrazione 0009) come avviso per il titolare: query di
+controllo `select * from wa_number_requests where status='pending'` per sapere
+chi attende un numero e rifornire il pool.
+
+`release_wa_number()` libera il numero (status→available) per disdetta/cambio
+piano: la RPC è pronta, va solo agganciata a un futuro flusso di cancellazione.
+
+Nota: l'assegnazione scatta su ogni attivazione (demo inclusa), gated dal pool —
+in demo, se non hai ancora caricato numeri, l'utente resta semplicemente "in
+attesa". Se preferisci assegnare solo ai piani a pagamento, basta condizionare la
+chiamata a `ensureWaNumber()` su `mode === 'paid'`.

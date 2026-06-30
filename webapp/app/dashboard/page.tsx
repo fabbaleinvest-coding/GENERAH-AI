@@ -104,6 +104,8 @@ function Overview({ onTopUp, setTab }: { onTopUp: (m: MeterKey) => void; setTab:
 
       <NextPostWidget setTab={setTab} />
 
+      <WaNumberCard />
+
       {/* contatori */}
       <div>
         <div className="mb-3 flex items-center justify-between">
@@ -513,6 +515,59 @@ function NextPostWidget({ setTab }: { setTab: (t: Tab) => void }) {
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+function WaNumberCard() {
+  const { user, ensureWaNumber } = useStore();
+  if (!user || !user.plan) return null;
+  const wa = user.waNumber;
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="font-display text-xl font-semibold text-bone">Numero WhatsApp</h2>
+        <span className="font-mono text-[0.64rem] uppercase tracking-[0.14em] text-mist/60">Cloud API · Meta</span>
+      </div>
+      {wa && wa.status === 'assigned' ? (
+        <div className="flex items-center gap-4 rounded-2xl border border-teal-300/20 bg-teal-400/[0.04] p-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-teal-300/20 bg-teal-400/10 font-mono text-[0.72rem] text-teal-200">
+            WA
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-[1rem] text-bone">{wa.e164}</span>
+              <Badge tone="teal">attivo</Badge>
+            </div>
+            <p className="mt-1 text-[0.84rem] text-mist">
+              {wa.displayName ? `Nome visualizzato: ${wa.displayName}` : 'Numero dedicato assegnato al tuo account.'}
+            </p>
+          </div>
+        </div>
+      ) : wa && wa.pending ? (
+        <div className="flex items-center gap-4 rounded-2xl border border-amber-300/20 bg-amber-400/[0.05] p-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-amber-300/20 bg-amber-400/10 font-mono text-amber-200">
+            …
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[0.96rem] text-bone">In attesa di assegnazione</span>
+              <Badge tone="amber">pending</Badge>
+            </div>
+            <p className="mt-1 text-[0.84rem] text-mist">
+              Ti assegneremo un numero dedicato appena disponibile. Sei già in lista.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+          <p className="text-[0.88rem] text-mist">Richiedi il numero WhatsApp dedicato per il tuo account.</p>
+          <Button size="sm" variant="outline" onClick={() => ensureWaNumber()}>
+            Richiedi numero
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

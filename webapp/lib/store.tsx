@@ -179,6 +179,15 @@ export interface Meter {
   used: number;
 }
 
+export interface WaNumber {
+  id: string;
+  e164: string;
+  phoneNumberId: string | null;
+  displayName: string;
+  status: string; // 'assigned' | 'pending'
+  pending: boolean; // true = richiesto ma nessun numero libero nel pool
+}
+
 export interface User {
   id: string;
   nome: string;
@@ -212,6 +221,7 @@ export interface User {
   campaigns: Campaign[];
   leads: Lead[];
   alerts: AlertItem[];
+  waNumber: WaNumber | null; // numero WhatsApp assegnato (derivato, non persistito sul profilo)
 }
 
 const emptyMeters = (): Record<MeterKey, Meter> => ({
@@ -291,6 +301,41 @@ async function loadLeads(userId: string): Promise<Lead[]> {
   }
 }
 
+// Numero WhatsApp assegnato all'utente (RLS: vede solo il proprio). Se non è
+// assegnato ma esiste una richiesta in attesa, restituisce lo stato "pending".
+async function loadWaNumber(userId: string): Promise<WaNumber | null> {
+  try {
+    const { data } = await supabase
+      .from('wa_numbers')
+      .select('id, e164, phone_number_id, display_name, status')
+      .eq('assigned_user_id', userId)
+      .eq('status', 'assigned')
+      .maybeSingle();
+    if (data) {
+      return {
+        id: (data as any).id,
+        e164: (data as any).e164,
+        phoneNumberId: (data as any).phone_number_id ?? null,
+        displayName: (data as any).display_name ?? '',
+        status: 'assigned',
+        pending: false,
+      };
+    }
+    const { data: req } = await supabase
+      .from('wa_number_requests')
+      .select('status')
+      .eq('user_id', userId)
+      .eq('status', 'pending')
+      .maybeSingle();
+    if (req) {
+      return { id: '', e164: '', phoneNumberId: null, displayName: '', status: 'pending', pending: true };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function queuedFromRow(r: any): QueuedSocialPost {
   return {
     id: r.id,
@@ -339,6 +384,7 @@ function rowToUser(r: any): User {
     campaigns: Array.isArray(r.campaigns) ? (r.campaigns as Campaign[]) : [],
     leads: Array.isArray(r.leads) ? (r.leads as Lead[]) : [],
     alerts: Array.isArray(r.alerts) ? (r.alerts as AlertItem[]) : [],
+    waNumber: null, // caricato separatamente da loadWaNumber (RLS su wa_numbers)
   };
 }
 
@@ -399,6 +445,7 @@ interface StoreCtx {
   activatePlan: (planId: PlanId, code: string | null, mode: 'demo' | 'paid') => void;
   consume: (meter: MeterKey, amount: number) => void;
   topUp: (meter: MeterKey, qty: number) => void;
+  ensureWaNumber: () => void; // assegna/recupera il numero WhatsApp dell'utente
   addKb: (files: File[]) => void;
   removeKb: (id: string) => void;
   askKb: (question: string) => Promise<{ ok: boolean; answer?: string; sources?: KbSource[]; error?: string }>;
@@ -561,6 +608,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (data) {
         const u = rowToUser(data);
         u.leads = await loadLeads(id);
+        u.waNumber = await loadWaNumber(id);
         return u;
       }
       await new Promise((r) => setTimeout(r, 300));
@@ -641,6 +689,49 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
+  // Assicura un numero WhatsApp all'utente: assegna un numero libero del pool
+  // (idempotente). Se il pool è vuoto resta "in attesa" (richiesta registrata
+  // lato DB come avviso per il titolare).
+  const ensureWaNumber = async () => {
+    try {
+      const { data, error } = await supabase.rpc('assign_wa_number');
+      if (error || !data) return;
+      const d = data as {
+        assigned?: boolean;
+        pending?: boolean;
+        id?: string;
+        e164?: string;
+        phone_number_id?: string | null;
+        display_name?: string;
+      };
+      setUser((prev) => {
+        if (!prev) return prev;
+        if (d.assigned) {
+          return {
+            ...prev,
+            waNumber: {
+              id: String(d.id || ''),
+              e164: String(d.e164 || ''),
+              phoneNumberId: d.phone_number_id ?? null,
+              displayName: String(d.display_name || ''),
+              status: 'assigned',
+              pending: false,
+            },
+          };
+        }
+        if (d.pending) {
+          return {
+            ...prev,
+            waNumber: { id: '', e164: '', phoneNumberId: null, displayName: '', status: 'pending', pending: true },
+          };
+        }
+        return prev;
+      });
+    } catch {
+      /* offline: nessun cambiamento */
+    }
+  };
+
   const activatePlan: StoreCtx['activatePlan'] = (planId, code, mode) => {
     const priced = priceWithDiscount(planId, code);
     const fp = priced.featurePlan;
@@ -676,6 +767,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // offline: resta l'allocazione ottimistica locale
       }
     })();
+    // Assegnazione automatica del numero WhatsApp all'attivazione del piano.
+    void ensureWaNumber();
   };
 
   // Consumo meter: aggiornamento ottimistico locale (UI reattiva) + consumo
@@ -1507,6 +1600,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       campaigns: [],
       leads: [],
       alerts: [],
+      waNumber: null,
     };
     setUser(fresh);
     void persist(fresh);
@@ -1521,6 +1615,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     activatePlan,
     consume,
     topUp,
+    ensureWaNumber,
     addKb,
     removeKb,
     askKb,
