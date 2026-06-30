@@ -516,13 +516,3 @@ e compaiono nel thread del tab WhatsApp come messaggi in uscita.
 
 Env: `ANTHROPIC_API_KEY` (+ `ANTHROPIC_MODEL` opzionale), `WHATSAPP_TOKEN`,
 `SUPABASE_SERVICE_ROLE_KEY`. Senza una di queste, l'auto-reply resta inattivo.
-
-#### Auto-reply rapido (latenza)
-
-L'auto-reply è ottimizzato per rispondere subito: usa un **modello veloce**
-(`WA_AUTOREPLY_MODEL`, default `claude-haiku-4-5-20251001`) con budget contenuto
-(max 300 token), storico breve (10 messaggi) e **RAG con timeout di 1,5s** (se
-l'embedding è lento si risponde lo stesso, con il fallback su settore + nomi
-file). Timeout generazione 8s. La **Bozza AI manuale** del composer resta su
-Opus 4.8 (qualità, con revisione umana). Per forzare anche l'auto-reply su Opus:
-`WA_AUTOREPLY_MODEL=claude-opus-4-8` (più lento).

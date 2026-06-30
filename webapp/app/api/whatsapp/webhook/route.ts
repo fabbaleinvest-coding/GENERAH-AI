@@ -115,18 +115,9 @@ async function ingestOne(db: NonNullable<ReturnType<typeof serviceClient>>, m: I
   }
 }
 
-// Limita il tempo d'attesa di una promessa: oltre `ms` restituisce `fallback`.
-function raceTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
-  return Promise.race([p, new Promise<T>((res) => setTimeout(() => res(fallback), ms))]).catch(
-    () => fallback,
-  );
-}
-
-// Risposta automatica rapida, ancorata alla knowledge base (RAG service-role),
+// Risposta automatica con Opus 4.8 ancorata alla knowledge base (RAG service-role),
 // inviata entro la finestra 24h (il cliente ha appena scritto → testo libero,
-// gratuito, nessun consumo di meter). Per la velocità usa un modello veloce
-// (WA_AUTOREPLY_MODEL, default Haiku 4.5) con RAG e budget contenuti; la Bozza
-// AI manuale del composer resta su Opus. Disattivabile per-utente (wa_autoreply).
+// gratuito, nessun consumo di meter). Disattivabile per-utente (wa_autoreply).
 // Best-effort: ogni errore è silenzioso, il webhook ACK comunque.
 async function maybeAutoReply(
   db: NonNullable<ReturnType<typeof serviceClient>>,
@@ -149,7 +140,7 @@ async function maybeAutoReply(
     .eq('user_id', ctx.userId)
     .eq('contact', ctx.contact)
     .order('created_at', { ascending: true })
-    .limit(10);
+    .limit(14);
   const history = Array.isArray(hist)
     ? hist.map((h: { direction?: string; body?: string }) => ({
         direction: String(h.direction || ''),
@@ -158,14 +149,17 @@ async function maybeAutoReply(
     : [];
 
   const lastInbound = [...history].reverse().find((h) => h.direction === 'inbound')?.body || '';
-  // RAG con timeout stretto: se l'embedding è lento, si procede senza contesto
-  // (resta il fallback su settore + nomi file) per non ritardare la risposta.
-  const chunks = await raceTimeout(
-    retrieveContextForUser(ctx.userId, (lastInbound || String(p.settore || '')).slice(0, 400), 4),
-    1500,
-    [],
-  );
-  const ragContext = formatContext(chunks, 2500);
+  let ragContext = '';
+  try {
+    const chunks = await retrieveContextForUser(
+      ctx.userId,
+      (lastInbound || String(p.settore || '')).slice(0, 400),
+      6,
+    );
+    ragContext = formatContext(chunks, 5000);
+  } catch {
+    /* fallback ai nomi file */
+  }
   const kbFiles = Array.isArray(p.kb) ? p.kb.map((f) => String(f?.name || '')).filter(Boolean) : [];
 
   const reply = await generateWaReply({
@@ -174,9 +168,7 @@ async function maybeAutoReply(
     settore: String(p.settore || ''),
     kbFiles,
     ragContext,
-    model: process.env.WA_AUTOREPLY_MODEL || 'claude-haiku-4-5-20251001',
-    maxTokens: 300,
-    timeoutMs: 8000,
+    timeoutMs: 12000,
   });
   if (!reply) return;
 

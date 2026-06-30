@@ -20,8 +20,6 @@ export async function generateWaReply(opts: {
   kbFiles?: string[];
   ragContext?: string;
   timeoutMs?: number;
-  model?: string;
-  maxTokens?: number;
 }): Promise<string> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return '';
@@ -46,7 +44,7 @@ ${transcript || '(primo contatto)'}
 
 Scrivi la PROSSIMA risposta WhatsApp dell'azienda: breve (1-3 frasi), cordiale, diretta, in italiano. Fai avanzare la conversazione verso il passo successivo (informazione utile, domanda di qualifica, proposta di appuntamento). Niente markdown, niente firma, niente virgolette: restituisci solo il testo del messaggio.`;
 
-  const model = opts.model || process.env.ANTHROPIC_MODEL || 'claude-opus-4-8';
+  const model = process.env.ANTHROPIC_MODEL || 'claude-opus-4-8';
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 12000);
   try {
@@ -55,7 +53,7 @@ Scrivi la PROSSIMA risposta WhatsApp dell'azienda: breve (1-3 frasi), cordiale, 
       headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
         model,
-        max_tokens: opts.maxTokens ?? 400,
+        max_tokens: 400,
         system:
           'Sei il miglior copywriter conversazionale al mondo: scrivi risposte WhatsApp brevi, umane e persuasive che fanno avanzare la vendita. Rispondi solo con il testo del messaggio, senza markdown.',
         messages: [{ role: 'user', content: prompt }],
