@@ -269,3 +269,27 @@ Setup:
 Note: le immagini (infografiche Nano Banana Pro) devono essere a URL pubblico
 (quelle Higgsfield lo sono). La pubblicazione è "una volta sola" per post: in caso di
 errore non si ritenta in automatico, per evitare doppie pubblicazioni.
+
+### Metering lato server (registro consumi autorevole)
+
+I contatori (phone, video, whatsapp, ads) non sono più gestiti solo dal client.
+Il consumo passa dalla funzione DB `consume_meter(meter, amount)` (SECURITY
+DEFINER, scoped a `auth.uid()`), che con un **lock di riga** incrementa `used`
+in modo **atomico**, fa il cap a `total` (mai negativo) e rileva
+l'attraversamento della **soglia del 10%** — tutto nel database, quindi
+autorevole e a prova di chiamate concorrenti.
+
+Flusso: il client fa un aggiornamento ottimistico (UI reattiva) e chiama
+`/api/meter/consume`, poi **riconcilia** lo stato locale con il valore del
+server e mostra l'alert 10% se restituito. Anche il consumo del meter `ads`
+(lancio campagna) passa di qui.
+
+Setup: esegui `supabase/migrations/0006_consume_meter.sql` (crea la funzione).
+Nessuna nuova env.
+
+Nota (hardening successivo, consigliato): la colonna `profiles.meters` è ancora
+scrivibile dal client via upsert del profilo (provisioning del piano e top-up).
+Per renderla totalmente a prova di manomissione si può aggiungere un trigger che
+consenta la modifica di `meters` solo alla funzione `consume_meter` (e a una
+funzione di provisioning/top-up dedicata), così il client non può azzerare i
+contatori.

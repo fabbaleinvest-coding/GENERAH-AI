@@ -488,7 +488,6 @@ interface StoreCtx {
 
 const Ctx = createContext<StoreCtx | null>(null);
 
-const ALERT_THRESHOLD = 0.1; // 10%
 
 // genera lead demo coerenti col settore (per le campagne)
 const FIRST = ['Marco', 'Giulia', 'Luca', 'Sara', 'Andrea', 'Elena', 'Paolo', 'Chiara', 'Davide', 'Martina', 'Simone', 'Federica'];
@@ -664,22 +663,56 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }));
   };
 
+  // Consumo meter: aggiornamento ottimistico locale (UI reattiva) + consumo
+  // AUTOREVOLE lato server (funzione DB atomica). Lo stato locale viene poi
+  // riconciliato con il valore del server, che rileva anche la soglia del 10%.
   const consume: StoreCtx['consume'] = (meter, amount) => {
-    mutateUser((u) => {
-      const m = u.meters[meter];
-      if (m.total <= 0) return u;
+    // 1) ottimistico (immediato)
+    setUser((prev) => {
+      if (!prev) return prev;
+      const m = prev.meters[meter];
+      if (!m || m.total <= 0) return prev;
       const used = Math.min(m.total, m.used + amount);
-      const remainingPct = (m.total - used) / m.total;
-      let alerts = u.alerts;
-      const alreadyAlerted = u.alerts.some((a) => a.meter === meter && !a.read);
-      if (remainingPct <= ALERT_THRESHOLD && !alreadyAlerted) {
-        alerts = [
-          { id: uid(), meter, remainingPct, createdAt: Date.now(), read: false },
-          ...u.alerts,
-        ];
-      }
-      return { ...u, meters: { ...u.meters, [meter]: { total: m.total, used } }, alerts };
+      return { ...prev, meters: { ...prev.meters, [meter]: { total: m.total, used } } };
     });
+
+    // 2) autorevole sul server + riconciliazione/alert
+    void (async () => {
+      try {
+        const token = (await supabase.auth.getSession()).data.session?.access_token;
+        if (!token) return;
+        const res = await fetch('/api/meter/consume', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ meter, amount }),
+        });
+        const d = await res.json().catch(() => null);
+        if (!res.ok || !d || d.ok === false || d.in_plan === false) return;
+        setUser((prev) => {
+          if (!prev) return prev;
+          const m = prev.meters[meter];
+          if (!m) return prev;
+          const total = Number(d.total);
+          const used = Number(d.used);
+          let alerts = prev.alerts;
+          if (d.alert && !prev.alerts.some((a) => a.meter === meter && !a.read)) {
+            alerts = [
+              {
+                id: uid(),
+                meter,
+                remainingPct: total > 0 ? Number(d.remaining) / total : 0,
+                createdAt: Date.now(),
+                read: false,
+              },
+              ...prev.alerts,
+            ];
+          }
+          return { ...prev, meters: { ...prev.meters, [meter]: { total, used } }, alerts };
+        });
+      } catch {
+        // offline / errore: resta l'aggiornamento ottimistico locale
+      }
+    })();
   };
 
   const topUp: StoreCtx['topUp'] = (meter, qty) => {
@@ -1119,13 +1152,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       void supabase.from('leads').insert(seedLeads.map((l) => leadToRow(u.id, l)));
     }
     mutateUser((cur) => {
-      const ads = cur.meters.ads;
-      const usedAds = Math.min(ads.total, ads.used + 1);
-      const remainingPct = ads.total > 0 ? (ads.total - usedAds) / ads.total : 1;
-      let alerts = cur.alerts;
-      if (ads.total > 0 && remainingPct <= ALERT_THRESHOLD && !cur.alerts.some((a) => a.meter === 'ads' && !a.read)) {
-        alerts = [{ id: uid(), meter: 'ads', remainingPct, createdAt: Date.now(), read: false }, ...cur.alerts];
-      }
       const campaign: Campaign = {
         ...c,
         id: uid(),
@@ -1138,10 +1164,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ...cur,
         campaigns: [campaign, ...cur.campaigns],
         leads: [...seedLeads, ...cur.leads],
-        meters: { ...cur.meters, ads: { total: ads.total, used: usedAds } },
-        alerts,
       };
     });
+
+    // Consumo del meter "ads" autorevole lato server (con soglia 10%).
+    consume('ads', 1);
   };
 
   const addLead: StoreCtx['addLead'] = (l) => {
