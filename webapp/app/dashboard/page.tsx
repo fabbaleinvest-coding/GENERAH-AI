@@ -11,7 +11,7 @@ import {
   euro,
   num,
 } from '@/lib/plans';
-import { Lead, LeadStatus, LeadStatusOrder, KbFile, KbSource, QueuedSocialPost, QueuedPostStatus } from '@/lib/store';
+import { Lead, LeadStatus, LeadStatusOrder, KbFile, KbSource, QueuedSocialPost, QueuedPostStatus, WaMessage } from '@/lib/store';
 import { Guard } from '@/components/Guard';
 import { AppShell } from '@/components/AppShell';
 import { MeterBar } from '@/components/Meters';
@@ -20,11 +20,12 @@ import { Container, Button, Badge, Photo, Spinner, cx } from '@/components/ui';
 import VideoConsult from '@/components/VideoConsult';
 import { IMG } from '@/lib/images';
 
-type Tab = 'overview' | 'leads' | 'campaigns' | 'social' | 'video' | 'kb' | 'account';
+type Tab = 'overview' | 'leads' | 'whatsapp' | 'campaigns' | 'social' | 'video' | 'kb' | 'account';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview', label: 'Panoramica' },
   { id: 'leads', label: 'Lead · CRM' },
+  { id: 'whatsapp', label: 'WhatsApp' },
   { id: 'campaigns', label: 'Campagne' },
   { id: 'social', label: 'Post social' },
   { id: 'video', label: 'Video-consulto' },
@@ -1139,6 +1140,288 @@ function AccountView() {
 }
 
 // ════════════════════════════ SHELL ════════════════════════════
+function waClock(ms: number): string {
+  try {
+    return new Date(ms).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+}
+
+const WA_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+function WhatsAppView() {
+  const { user, fetchWaMessages, sendWhatsApp, draftWhatsApp } = useStore();
+  const [messages, setMessages] = useState<WaMessage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [text, setText] = useState('');
+  const [templateName, setTemplateName] = useState('');
+  const [sending, setSending] = useState(false);
+  const [drafting, setDrafting] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    const m = await fetchWaMessages();
+    setMessages(m);
+    setLoading(false);
+  }, [fetchWaMessages]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const conversations = useMemo(() => {
+    const map = new Map<string, WaMessage[]>();
+    for (const m of messages) {
+      if (!map.has(m.contact)) map.set(m.contact, []);
+      map.get(m.contact)!.push(m);
+    }
+    const list = Array.from(map.entries()).map(([contact, msgs]) => {
+      const sorted = [...msgs].sort((a, b) => a.createdAt - b.createdAt);
+      const lastInbound = [...sorted].reverse().find((x) => x.direction === 'inbound');
+      return { contact, msgs: sorted, last: sorted[sorted.length - 1], lastInboundAt: lastInbound?.createdAt ?? 0 };
+    });
+    list.sort((a, b) => (b.last?.createdAt ?? 0) - (a.last?.createdAt ?? 0));
+    return list;
+  }, [messages]);
+
+  useEffect(() => {
+    if (!selected && conversations.length) setSelected(conversations[0].contact);
+  }, [conversations, selected]);
+
+  const current = conversations.find((c) => c.contact === selected) || null;
+  const windowOpen = !!current && current.lastInboundAt > 0 && Date.now() - current.lastInboundAt < WA_WINDOW_MS;
+  const wa = user?.waNumber;
+  const numberReady = !!wa && wa.status === 'assigned';
+
+  async function handleSend() {
+    if (!selected) return;
+    setNotice(null);
+    if (windowOpen) {
+      const t = text.trim();
+      if (!t) return;
+      setSending(true);
+      const optimistic: WaMessage = {
+        id: `tmp_${Date.now()}`,
+        contact: selected,
+        direction: 'outbound',
+        body: t,
+        msgType: 'text',
+        templateName: null,
+        status: 'sending',
+        wamid: null,
+        createdAt: Date.now(),
+      };
+      setMessages((prev) => [...prev, optimistic]);
+      setText('');
+      const r = await sendWhatsApp(selected, { text: t });
+      setSending(false);
+      if (!r.ok) {
+        setNotice(
+          r.reason === 'outside_window'
+            ? 'Fuori finestra 24h: serve un template approvato.'
+            : r.configured === false
+              ? 'WhatsApp non ancora configurato (numero o token mancanti).'
+              : r.error || 'Invio non riuscito.',
+        );
+      }
+      setTimeout(() => void load(), 1200);
+    } else {
+      const name = templateName.trim();
+      if (!name) {
+        setNotice('Finestra 24h chiusa: indica il nome di un template approvato.');
+        return;
+      }
+      setSending(true);
+      const r = await sendWhatsApp(selected, { template: name, lang: 'it' });
+      setSending(false);
+      if (r.ok) {
+        setTemplateName('');
+        setNotice('Template inviato.');
+        setTimeout(() => void load(), 1200);
+      } else {
+        setNotice(
+          r.configured === false
+            ? 'WhatsApp non ancora configurato.'
+            : r.error || `Invio template non riuscito${r.reason ? ` (${r.reason})` : ''}.`,
+        );
+      }
+    }
+  }
+
+  async function handleDraft() {
+    if (!current) return;
+    setNotice(null);
+    setDrafting(true);
+    const recent = current.msgs.slice(-12).map((m) => ({ direction: m.direction, body: m.body }));
+    const reply = await draftWhatsApp(current.contact, recent);
+    setDrafting(false);
+    if (reply) setText(reply);
+    else setNotice('Bozza AI non disponibile (configura ANTHROPIC_API_KEY).');
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl font-semibold text-bone">WhatsApp</h1>
+          <p className="mt-1 text-mist">
+            {numberReady ? (
+              <>
+                Numero attivo <span className="font-mono text-bone">{wa!.e164}</span>
+                {wa!.displayName ? ` · ${wa!.displayName}` : ''}
+              </>
+            ) : wa && wa.pending ? (
+              'Numero in attesa di assegnazione.'
+            ) : (
+              'Nessun numero WhatsApp attivo: attiva un piano per riceverne uno.'
+            )}
+          </p>
+        </div>
+        <Button size="sm" variant="outline" onClick={() => load()}>
+          Aggiorna
+        </Button>
+      </div>
+
+      {notice && (
+        <div className="rounded-xl border border-amber/30 bg-amber/10 px-4 py-2.5 text-[0.86rem] text-bone">{notice}</div>
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
+        {/* Lista conversazioni */}
+        <div className="rounded-2xl border border-white/10 bg-white/[0.02]">
+          <div className="border-b border-white/10 px-4 py-2.5 font-mono text-[0.64rem] uppercase tracking-[0.14em] text-mist/70">
+            Conversazioni ({conversations.length})
+          </div>
+          <div className="max-h-[60vh] overflow-y-auto">
+            {loading ? (
+              <div className="flex justify-center py-10">
+                <Spinner />
+              </div>
+            ) : conversations.length === 0 ? (
+              <p className="px-4 py-8 text-center text-[0.86rem] text-mist">
+                Nessuna conversazione. I messaggi in arrivo sul tuo numero compariranno qui.
+              </p>
+            ) : (
+              conversations.map((c) => (
+                <button
+                  key={c.contact}
+                  onClick={() => setSelected(c.contact)}
+                  className={cx(
+                    'flex w-full flex-col gap-0.5 border-b border-white/5 px-4 py-3 text-left transition',
+                    c.contact === selected ? 'bg-teal-400/[0.06]' : 'hover:bg-white/[0.03]',
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-[0.86rem] text-bone">{c.contact}</span>
+                    <span className="shrink-0 text-[0.66rem] text-mist/60">{relWhen(c.last.createdAt)}</span>
+                  </div>
+                  <span className="line-clamp-1 text-[0.78rem] text-mist">
+                    {c.last.direction === 'outbound' ? 'Tu: ' : ''}
+                    {c.last.body || (c.last.templateName ? `[template ${c.last.templateName}]` : '…')}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Thread + composer */}
+        <div className="flex min-h-[60vh] flex-col rounded-2xl border border-white/10 bg-white/[0.02]">
+          {!current ? (
+            <div className="flex flex-1 items-center justify-center px-6 text-center text-mist">
+              Seleziona una conversazione per leggere e rispondere.
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-2 border-b border-white/10 px-4 py-2.5">
+                <span className="font-mono text-[0.9rem] text-bone">{current.contact}</span>
+                <Badge tone={windowOpen ? 'teal' : 'amber'}>
+                  {windowOpen ? 'finestra 24h aperta' : 'finestra 24h chiusa'}
+                </Badge>
+              </div>
+
+              <div className="flex-1 space-y-2 overflow-y-auto px-4 py-4" style={{ maxHeight: '46vh' }}>
+                {current.msgs.map((m) => (
+                  <div key={m.id} className={cx('flex', m.direction === 'outbound' ? 'justify-end' : 'justify-start')}>
+                    <div
+                      className={cx(
+                        'max-w-[80%] rounded-2xl px-3.5 py-2 text-[0.88rem]',
+                        m.direction === 'outbound'
+                          ? 'bg-teal-400/15 text-bone'
+                          : 'border border-white/10 bg-white/[0.04] text-bone/90',
+                      )}
+                    >
+                      {m.templateName && (
+                        <span className="mb-1 block font-mono text-[0.62rem] uppercase tracking-[0.12em] text-mist/60">
+                          template · {m.templateName}
+                        </span>
+                      )}
+                      <span className="whitespace-pre-wrap">{m.body || '…'}</span>
+                      <span className="mt-1 block text-right text-[0.6rem] text-mist/50">
+                        {waClock(m.createdAt)}
+                        {m.status === 'sending' ? ' · invio…' : ''}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Composer */}
+              <div className="border-t border-white/10 p-3">
+                {windowOpen ? (
+                  <div className="flex items-end gap-2">
+                    <textarea
+                      value={text}
+                      onChange={(e) => setText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                          e.preventDefault();
+                          void handleSend();
+                        }
+                      }}
+                      rows={2}
+                      placeholder="Scrivi una risposta…  (⌘/Ctrl+Invio per inviare)"
+                      className="min-h-[44px] flex-1 resize-y rounded-xl border border-white/10 bg-ink px-3 py-2 text-[0.9rem] text-bone outline-none focus:border-teal-300/40"
+                    />
+                    <div className="flex flex-col gap-2">
+                      <Button size="sm" variant="outline" onClick={() => handleDraft()} disabled={drafting}>
+                        {drafting ? 'Scrivo…' : 'Bozza AI'}
+                      </Button>
+                      <Button size="sm" onClick={() => handleSend()} disabled={sending || !text.trim()}>
+                        {sending ? 'Invio…' : 'Invia'}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-[0.8rem] text-mist">
+                      Sono passate più di 24h dall&apos;ultimo messaggio del cliente: WhatsApp consente solo un
+                      <span className="text-bone"> template approvato</span>.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <input
+                        value={templateName}
+                        onChange={(e) => setTemplateName(e.target.value)}
+                        placeholder="nome_template_approvato"
+                        className="flex-1 rounded-xl border border-white/10 bg-ink px-3 py-2 font-mono text-[0.85rem] text-bone outline-none focus:border-teal-300/40"
+                      />
+                      <Button size="sm" onClick={() => handleSend()} disabled={sending || !templateName.trim()}>
+                        {sending ? 'Invio…' : 'Invia template'}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DashboardInner() {
   const [tab, setTab] = useState<Tab>('overview');
   const [topUp, setTopUp] = useState<MeterKey | null>(null);
@@ -1163,6 +1446,7 @@ function DashboardInner() {
 
       {tab === 'overview' && <Overview onTopUp={setTopUp} setTab={setTab} />}
       {tab === 'leads' && <LeadsView />}
+      {tab === 'whatsapp' && <WhatsAppView />}
       {tab === 'campaigns' && <CampaignsView setTab={setTab} />}
       {tab === 'social' && <SocialQueueView />}
       {tab === 'video' && <VideoView onTopUp={setTopUp} />}

@@ -188,6 +188,18 @@ export interface WaNumber {
   pending: boolean; // true = richiesto ma nessun numero libero nel pool
 }
 
+export interface WaMessage {
+  id: string;
+  contact: string; // E.164 del cliente finale
+  direction: 'inbound' | 'outbound';
+  body: string;
+  msgType: string;
+  templateName: string | null;
+  status: string;
+  wamid: string | null;
+  createdAt: number;
+}
+
 export interface User {
   id: string;
   nome: string;
@@ -334,6 +346,20 @@ async function loadWaNumber(userId: string): Promise<WaNumber | null> {
   } catch {
     return null;
   }
+}
+
+function waMessageFromRow(r: any): WaMessage {
+  return {
+    id: String(r.id),
+    contact: String(r.contact || ''),
+    direction: r.direction === 'inbound' ? 'inbound' : 'outbound',
+    body: String(r.body || ''),
+    msgType: String(r.msg_type || 'text'),
+    templateName: r.template_name ?? null,
+    status: String(r.status || ''),
+    wamid: r.wamid ?? null,
+    createdAt: r.created_at ? Date.parse(r.created_at) : Date.now(),
+  };
 }
 
 function queuedFromRow(r: any): QueuedSocialPost {
@@ -488,6 +514,19 @@ interface StoreCtx {
   refreshLeads: () => Promise<void>;
   fetchSocialQueue: () => Promise<QueuedSocialPost[]>;
   cancelSocialPost: (id: string) => Promise<void>;
+  fetchWaMessages: () => Promise<WaMessage[]>;
+  sendWhatsApp: (
+    to: string,
+    opts: { text?: string; template?: string; lang?: string },
+  ) => Promise<{
+    ok: boolean;
+    reason?: string;
+    needTemplate?: boolean;
+    configured?: boolean;
+    error?: string;
+    meter?: unknown;
+  }>;
+  draftWhatsApp: (contact: string, recent: { direction: string; body: string }[]) => Promise<string>;
   generateCampaignBrief: (input?: {
     objective?: string;
     budgetDaily?: number;
@@ -1420,6 +1459,73 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       .eq('status', 'pending');
   };
 
+  // ── WhatsApp (conversazioni) ───────────────────────────────────────────
+  const fetchWaMessages: StoreCtx['fetchWaMessages'] = async () => {
+    const u = userRef.current;
+    if (!u) return [];
+    try {
+      const { data } = await supabase
+        .from('wa_messages')
+        .select('*')
+        .eq('user_id', u.id)
+        .order('created_at', { ascending: true })
+        .limit(1000);
+      return Array.isArray(data) ? data.map(waMessageFromRow) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const sendWhatsApp: StoreCtx['sendWhatsApp'] = async (to, opts) => {
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    if (!token) return { ok: false, error: 'Sessione non valida' };
+    try {
+      const res = await fetch('/api/whatsapp/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(
+          opts.template
+            ? { to, template: { name: opts.template, lang: opts.lang || 'it' } }
+            : { to, text: opts.text || '' },
+        ),
+      });
+      const data = await res.json().catch(() => ({}));
+      return {
+        ok: !!data?.ok,
+        reason: data?.reason,
+        needTemplate: !!data?.need_template,
+        configured: data?.configured,
+        error: data?.error,
+        meter: data?.meter,
+      };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  };
+
+  const draftWhatsApp: StoreCtx['draftWhatsApp'] = async (contact, recent) => {
+    const u = userRef.current;
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    if (!u || !token) return '';
+    try {
+      const res = await fetch('/api/whatsapp/draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          contact,
+          messages: recent,
+          nome: u.nome,
+          settore: u.settore,
+          kbFiles: u.kb.map((f) => f.name),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      return res.ok ? String(data?.reply || '') : '';
+    } catch {
+      return '';
+    }
+  };
+
   const generateCampaignBrief: StoreCtx['generateCampaignBrief'] = async (input) => {
     const u = userRef.current;
     if (!u) return { ok: false, error: 'Utente non disponibile' };
@@ -1643,6 +1749,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     refreshLeads,
     fetchSocialQueue,
     cancelSocialPost,
+    fetchWaMessages,
+    sendWhatsApp,
+    draftWhatsApp,
     markAlertsRead,
     resetAll,
   };

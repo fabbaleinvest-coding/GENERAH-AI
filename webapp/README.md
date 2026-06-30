@@ -469,3 +469,24 @@ Nota: i tool in tempo reale durante la chiamata (es. salvataggio lead a CRM
 mentre si parla) richiedono un worker WebSocket persistente
 (`wss://api.openai.com/v1/realtime?call_id=...`), non ospitabile su funzioni
 serverless: va aggiunto come servizio separato.
+
+### Dashboard WhatsApp (tab conversazioni)
+
+Nuovo tab **WhatsApp** in dashboard: lista conversazioni (raggruppate per
+contatto da `wa_messages`, RLS per-utente), thread con bolle inbound/outbound, e
+composer consapevole della **finestra di servizio 24h**:
+
+- finestra aperta (il cliente ha scritto da <24h) → testo libero (gratuito, non
+  consuma meter), con pulsante **Bozza AI**;
+- finestra chiusa → solo invio di un **template approvato** (per nome), come da
+  regole WhatsApp; il template consuma il meter `whatsapp`.
+
+L'invio passa dalla route esistente `/api/whatsapp/send` (gestisce finestra e
+metering lato server). La **Bozza AI** chiama `/api/whatsapp/draft` (Opus 4.8 +
+RAG sulla knowledge base) e restituisce il testo della prossima risposta, che
+l'utente può rivedere prima di inviare. Store: `fetchWaMessages`, `sendWhatsApp`,
+`draftWhatsApp`. Nessuna migrazione (riusa `wa_messages`).
+
+Nota: la UI mostra i messaggi già registrati; l'auto-reply AI automatico (senza
+revisione umana) è un passo successivo, costruibile sopra `/api/whatsapp/draft` +
+un trigger sul webhook in entrata.
