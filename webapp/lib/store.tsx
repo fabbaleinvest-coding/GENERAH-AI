@@ -384,6 +384,16 @@ interface StoreCtx {
     brief: CampaignBrief,
     onProgress?: (msg: string) => void
   ) => Promise<{ ok: boolean; clips: string[]; audioUrl: string | null; srt: string; error?: string }>;
+  publishMetaCampaign: (
+    brief: CampaignBrief,
+    params: { videoUrl: string; dailyBudgetEur: number; geoText?: string; ageRange?: string }
+  ) => Promise<{
+    ok: boolean;
+    configured: boolean;
+    reason?: string;
+    ids?: { campaignId: string; adSetId: string; adId: string; leadFormId: string };
+    error?: string;
+  }>;
   addLead: (l: Omit<Lead, 'id' | 'createdAt' | 'lastTouch'>) => void;
   updateLead: (id: string, patch: Partial<Lead>) => void;
   enrichLead: (id: string) => Promise<{ ok: boolean; error?: string }>;
@@ -914,6 +924,49 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Pubblica la campagna lead reale su Meta (strato 1). Se Meta non è
+  // configurato o manca il video, ritorna configured:false/reason senza errori:
+  // il chiamante prosegue in modalità dimostrativa.
+  const publishMetaCampaign: StoreCtx['publishMetaCampaign'] = async (brief, params) => {
+    try {
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      if (!token) return { ok: false, configured: false, reason: 'no_session' };
+      const res = await fetch('/api/ads/meta/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          brief: {
+            campaignName: brief.campaignName,
+            postText: brief.postText,
+            headline: brief.headline,
+            cta: brief.cta,
+            interests: brief.interests,
+            ageRange: brief.ageRange,
+            geoSuggestion: brief.geoSuggestion,
+            leadFormFields: brief.leadFormFields,
+          },
+          videoUrl: params.videoUrl,
+          dailyBudgetEur: params.dailyBudgetEur,
+          geoText: params.geoText,
+          ageRange: params.ageRange,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { ok: false, configured: true, error: String(data?.error || `HTTP ${res.status}`) };
+      }
+      return {
+        ok: !!data?.ok,
+        configured: data?.configured !== false,
+        reason: data?.reason,
+        ids: data?.ids,
+        error: data?.error,
+      };
+    } catch (e) {
+      return { ok: false, configured: false, error: (e as Error).message };
+    }
+  };
+
   const generateAdVideo: StoreCtx['generateAdVideo'] = async (brief, onProgress) => {
     const empty = { ok: false, clips: [] as string[], audioUrl: null as string | null, srt: '' };
     const u = userRef.current;
@@ -1048,6 +1101,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     launchCampaign,
     generateCampaignBrief,
     generateAdVideo,
+    publishMetaCampaign,
     addLead,
     updateLead,
     enrichLead,

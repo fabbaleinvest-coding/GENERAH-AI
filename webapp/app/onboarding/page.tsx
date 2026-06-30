@@ -238,7 +238,7 @@ function IntegrationTag({ children }: { children: React.ReactNode }) {
 }
 
 function OnboardingInner() {
-  const { user, addKb, removeKb, connectSocial, scheduleSocialPosts, generateSocialPlan, skipSocial, connectMeta, skipPhase2, launchCampaign, generateCampaignBrief, generateAdVideo, useVideoConsult, finishOnboarding } = useStore();
+  const { user, addKb, removeKb, connectSocial, scheduleSocialPosts, generateSocialPlan, skipSocial, connectMeta, skipPhase2, launchCampaign, generateCampaignBrief, generateAdVideo, publishMetaCampaign, useVideoConsult, finishOnboarding } = useStore();
   const router = useRouter();
   const [step, setStep] = useState<Step>('kb');
   const fileRef = useRef<HTMLInputElement>(null);
@@ -277,6 +277,7 @@ function OnboardingInner() {
   const [ageRange, setAgeRange] = useState('25-54');
   const [contacts, setContacts] = useState<number>(0);
   const [launched, setLaunched] = useState(false);
+  const [metaResult, setMetaResult] = useState<{ ok: boolean; configured: boolean; reason?: string; ids?: { campaignId: string }; error?: string } | null>(null);
   const [consultDone, setConsultDone] = useState(false);
 
   if (!user) return null;
@@ -382,25 +383,36 @@ function OnboardingInner() {
     e.target.value = '';
   }
 
-  function doLaunch() {
+  async function doLaunch() {
     setRunning(true);
-    setTimeout(() => {
-      launchCampaign({
-        name: aiBrief?.campaignName || `Lead-gen ${user!.settore.split('·')[0].trim()} · ${geo}`,
-        objective: 'Lead generation',
-        dailyBudget: budget,
-        geo,
-        audience: effAudience,
+    // Strato 1 Meta: se c'è il brief AI e una creatività, prova la pubblicazione
+    // reale (campagna creata in PAUSA). Se Meta non è configurato si prosegue in
+    // dimostrativo registrando comunque la campagna nel CRM.
+    let meta: Awaited<ReturnType<typeof publishMetaCampaign>> | null = null;
+    if (aiBrief && adClips.length > 0) {
+      meta = await publishMetaCampaign(aiBrief, {
+        videoUrl: adClips[0],
+        dailyBudgetEur: budget,
+        geoText: geo,
         ageRange,
-        interests: effInterests,
-        postText: effCaption,
-        videoConcept: effConcept,
-        lookalike: contacts >= 100,
-        brief: aiBrief ?? undefined,
       });
-      setRunning(false);
-      setLaunched(true);
-    }, 1800);
+    }
+    setMetaResult(meta);
+    launchCampaign({
+      name: aiBrief?.campaignName || `Lead-gen ${user!.settore.split('·')[0].trim()} · ${geo}`,
+      objective: 'Lead generation',
+      dailyBudget: budget,
+      geo,
+      audience: effAudience,
+      ageRange,
+      interests: effInterests,
+      postText: effCaption,
+      videoConcept: effConcept,
+      lookalike: contacts >= 100,
+      brief: aiBrief ?? undefined,
+    });
+    setRunning(false);
+    setLaunched(true);
   }
 
   function finish() {
@@ -1100,10 +1112,21 @@ function OnboardingInner() {
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-teal-400 text-ink-900">
                 <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 13l4 4L19 7" /></svg>
               </div>
-              <p className="mt-3 font-display text-xl font-semibold text-bone">Campagna attiva!</p>
-              <p className="mt-1.5 text-[0.9rem] text-mist">
-                Modulo di acquisizione pubblicato. I lead arriveranno nel tuo CRM in tempo reale.
+              <p className="mt-3 font-display text-xl font-semibold text-bone">
+                {metaResult?.ok ? 'Campagna creata su Meta' : 'Campagna pronta'}
               </p>
+              <p className="mt-1.5 text-[0.9rem] text-mist">
+                {metaResult?.ok
+                  ? 'Pubblicata in PAUSA su Meta: rivedila in Gestione Inserzioni e attivala. I lead arriveranno nel tuo CRM.'
+                  : metaResult?.error
+                    ? `Meta ha risposto: ${metaResult.error}. Campagna registrata nel CRM; ripubblichiamo appena risolto.`
+                    : 'Modulo di acquisizione e campagna pronti. Collega l account Meta per pubblicare in automatico; i lead arriveranno nel tuo CRM in tempo reale.'}
+              </p>
+              {metaResult?.ok && metaResult.ids?.campaignId && (
+                <p className="mt-2 font-mono text-[0.68rem] uppercase tracking-[0.12em] text-teal-200/80">
+                  Campagna {metaResult.ids.campaignId}
+                </p>
+              )}
               <Button className="mt-5" onClick={goNext}>
                 Passa al video-consulto
               </Button>
