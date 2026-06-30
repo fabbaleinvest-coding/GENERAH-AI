@@ -102,6 +102,8 @@ function Overview({ onTopUp, setTab }: { onTopUp: (m: MeterKey) => void; setTab:
         <StatCard label="File in memoria" value={num(user.kb.length)} sub="Knowledge base" />
       </div>
 
+      <NextPostWidget setTab={setTab} />
+
       {/* contatori */}
       <div>
         <div className="mb-3 flex items-center justify-between">
@@ -441,6 +443,78 @@ function fmtWhen(ms: number): string {
   } catch {
     return '';
   }
+}
+
+function relWhen(ms: number): string {
+  const diff = ms - Date.now();
+  if (diff <= 0) return 'in uscita a breve';
+  const min = Math.round(diff / 60000);
+  if (min < 60) return `tra ${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `tra ${h} h`;
+  const d = Math.round(h / 24);
+  return d === 1 ? 'domani' : `tra ${d} giorni`;
+}
+
+// Widget Panoramica: il prossimo post social in coda di pubblicazione. Si
+// nasconde se non c'è nulla di programmato.
+function NextPostWidget({ setTab }: { setTab: (t: Tab) => void }) {
+  const { fetchSocialQueue } = useStore();
+  const [next, setNext] = useState<QueuedSocialPost | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const all = await fetchSocialQueue();
+      const upcoming = all
+        .filter((p) => p.status === 'pending' || p.status === 'publishing')
+        .sort((a, b) => a.scheduledAt - b.scheduledAt);
+      if (alive) setNext(upcoming[0] ?? null);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [fetchSocialQueue]);
+
+  if (!next) return null;
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="font-display text-xl font-semibold text-bone">Prossimo post in uscita</h2>
+        <button
+          onClick={() => setTab('social')}
+          className="font-mono text-[0.66rem] uppercase tracking-[0.14em] text-teal-300 hover:text-teal-200"
+        >
+          Vedi tutti →
+        </button>
+      </div>
+      <div className="flex gap-4 rounded-2xl border border-teal-300/20 bg-teal-400/[0.04] p-4">
+        <div className="h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-ink">
+          {next.imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={next.imageUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-[0.66rem] text-mist/40">no img</div>
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone="teal">{relWhen(next.scheduledAt)}</Badge>
+            {next.networks.map((n) => (
+              <span key={n} className="rounded-full border border-white/10 px-2 py-0.5 text-[0.7rem] text-mist">
+                {NET_LABEL[n] || n}
+              </span>
+            ))}
+            <span className="font-mono text-[0.7rem] text-mist/70">{fmtWhen(next.scheduledAt)}</span>
+          </div>
+          <p className="mt-2 line-clamp-2 text-[0.88rem] text-bone/90">
+            {next.caption || <span className="text-mist/50">(senza testo)</span>}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function SocialQueueView() {
