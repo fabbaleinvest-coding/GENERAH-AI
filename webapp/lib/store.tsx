@@ -59,6 +59,27 @@ export interface SocialPost extends SocialPostDraft {
   status: 'programmato';
 }
 
+// Post in coda di pubblicazione diretta (Graph). Riflette social_posts_queue.
+export interface PublishNetworkResult {
+  network: string;
+  ok: boolean;
+  id?: string;
+  error?: string;
+}
+export type QueuedPostStatus = 'pending' | 'publishing' | 'published' | 'partial' | 'failed';
+export interface QueuedSocialPost {
+  id: string;
+  networks: string[];
+  caption: string;
+  imageUrl?: string;
+  scheduledAt: number;
+  status: QueuedPostStatus;
+  results: PublishNetworkResult[];
+  attempts: number;
+  publishedAt?: number;
+  createdAt: number;
+}
+
 export type LeadStatus =
   | 'nuovo'
   | 'contattato'
@@ -270,6 +291,21 @@ async function loadLeads(userId: string): Promise<Lead[]> {
   }
 }
 
+function queuedFromRow(r: any): QueuedSocialPost {
+  return {
+    id: r.id,
+    networks: Array.isArray(r.networks) ? (r.networks as string[]) : [],
+    caption: r.caption ?? '',
+    imageUrl: r.image_url ?? undefined,
+    scheduledAt: r.scheduled_at ? Date.parse(r.scheduled_at) : Date.now(),
+    status: (r.status ?? 'pending') as QueuedPostStatus,
+    results: Array.isArray(r.results) ? (r.results as PublishNetworkResult[]) : [],
+    attempts: Number(r.attempts ?? 0),
+    publishedAt: r.published_at ? Date.parse(r.published_at) : undefined,
+    createdAt: r.created_at ? Date.parse(r.created_at) : Date.now(),
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 //  Mappatura riga DB <-> oggetto User
 // ─────────────────────────────────────────────────────────────────────────
@@ -404,6 +440,8 @@ interface StoreCtx {
     opts?: { demoLeads?: boolean }
   ) => void;
   refreshLeads: () => Promise<void>;
+  fetchSocialQueue: () => Promise<QueuedSocialPost[]>;
+  cancelSocialPost: (id: string) => Promise<void>;
   generateCampaignBrief: (input?: {
     objective?: string;
     budgetDaily?: number;
@@ -1208,6 +1246,34 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  // Legge la coda di pubblicazione social (social_posts_queue) dell'utente.
+  const fetchSocialQueue: StoreCtx['fetchSocialQueue'] = async () => {
+    const u = userRef.current;
+    if (!u) return [];
+    try {
+      const { data } = await supabase
+        .from('social_posts_queue')
+        .select('*')
+        .eq('user_id', u.id)
+        .order('scheduled_at', { ascending: false });
+      return Array.isArray(data) ? data.map(queuedFromRow) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  // Annulla un post ancora in attesa (non tocca quelli già pubblicati).
+  const cancelSocialPost: StoreCtx['cancelSocialPost'] = async (id) => {
+    const u = userRef.current;
+    if (!u) return;
+    await supabase
+      .from('social_posts_queue')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', u.id)
+      .eq('status', 'pending');
+  };
+
   const generateCampaignBrief: StoreCtx['generateCampaignBrief'] = async (input) => {
     const u = userRef.current;
     if (!u) return { ok: false, error: 'Utente non disponibile' };
@@ -1427,6 +1493,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     enrichLead,
     removeLead,
     refreshLeads,
+    fetchSocialQueue,
+    cancelSocialPost,
     markAlertsRead,
     resetAll,
   };

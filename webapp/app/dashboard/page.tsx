@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, Fragment } from 'react';
+import { useMemo, useState, useEffect, useCallback, Fragment } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import {
@@ -11,7 +11,7 @@ import {
   euro,
   num,
 } from '@/lib/plans';
-import { Lead, LeadStatus, LeadStatusOrder, KbFile, KbSource } from '@/lib/store';
+import { Lead, LeadStatus, LeadStatusOrder, KbFile, KbSource, QueuedSocialPost, QueuedPostStatus } from '@/lib/store';
 import { Guard } from '@/components/Guard';
 import { AppShell } from '@/components/AppShell';
 import { MeterBar } from '@/components/Meters';
@@ -20,12 +20,13 @@ import { Container, Button, Badge, Photo, Spinner, cx } from '@/components/ui';
 import VideoConsult from '@/components/VideoConsult';
 import { IMG } from '@/lib/images';
 
-type Tab = 'overview' | 'leads' | 'campaigns' | 'video' | 'kb' | 'account';
+type Tab = 'overview' | 'leads' | 'campaigns' | 'social' | 'video' | 'kb' | 'account';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview', label: 'Panoramica' },
   { id: 'leads', label: 'Lead · CRM' },
   { id: 'campaigns', label: 'Campagne' },
+  { id: 'social', label: 'Post social' },
   { id: 'video', label: 'Video-consulto' },
   { id: 'kb', label: 'Knowledge base' },
   { id: 'account', label: 'Account' },
@@ -418,6 +419,156 @@ function LeadsView() {
 }
 
 // ════════════════════════════ CAMPAIGNS ════════════════════════════
+// ════════════════════════════ POST SOCIAL · CODA ════════════════════════════
+const QUEUE_STATUS: Record<QueuedPostStatus, { label: string; tone: 'teal' | 'amber' | 'coral' | 'muted' }> = {
+  pending: { label: 'Programmato', tone: 'amber' },
+  publishing: { label: 'In pubblicazione', tone: 'amber' },
+  published: { label: 'Pubblicato', tone: 'teal' },
+  partial: { label: 'Parziale', tone: 'coral' },
+  failed: { label: 'Errore', tone: 'coral' },
+};
+const NET_LABEL: Record<string, string> = { facebook: 'Facebook', instagram: 'Instagram' };
+
+function fmtWhen(ms: number): string {
+  try {
+    return new Date(ms).toLocaleString('it-IT', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '';
+  }
+}
+
+function SocialQueueView() {
+  const { user, fetchSocialQueue, cancelSocialPost } = useStore();
+  const [items, setItems] = useState<QueuedSocialPost[] | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [cancelingId, setCancelingId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    const r = await fetchSocialQueue();
+    setItems(r);
+  }, [fetchSocialQueue]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (!user) return null;
+
+  async function doRefresh() {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }
+  async function doCancel(id: string) {
+    setCancelingId(id);
+    await cancelSocialPost(id);
+    await load();
+    setCancelingId((c) => (c === id ? null : c));
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="font-display text-2xl font-semibold tracking-tight text-bone">Post social · Coda di pubblicazione</h1>
+          <p className="mt-1 text-[0.9rem] text-mist">
+            I post programmati su Facebook e Instagram, con lo stato di pubblicazione aggiornato dal motore di GENERAH AI.
+          </p>
+        </div>
+        <Button size="sm" variant="outline" onClick={doRefresh} disabled={refreshing}>
+          {refreshing ? <Spinner className="h-4 w-4" /> : 'Aggiorna'}
+        </Button>
+      </div>
+
+      {items === null ? (
+        <div className="flex items-center gap-3 py-12 text-mist">
+          <Spinner className="h-5 w-5" /> Carico la coda…
+        </div>
+      ) : items.length === 0 ? (
+        <div className="overflow-hidden rounded-2xl border border-white/8">
+          <Photo src={IMG.socialPost} alt="Post social programmati" overlay="left" ratio="aspect-[21/9]" rounded="">
+            <div className="flex h-full items-center p-8">
+              <div className="max-w-md">
+                <p className="font-display text-2xl font-semibold text-bone">Nessun post in coda</p>
+                <p className="mt-2 text-[0.92rem] text-mist">
+                  Genera il piano editoriale e programma i post dal flusso guidato: compariranno qui con lo stato di
+                  pubblicazione. La pubblicazione diretta richiede Meta collegato.
+                </p>
+                <Button className="mt-5" size="sm" href="/onboarding">
+                  Vai al flusso social
+                </Button>
+              </div>
+            </div>
+          </Photo>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {items.map((p) => {
+            const meta = QUEUE_STATUS[p.status];
+            return (
+              <div key={p.id} className="flex gap-4 rounded-2xl border border-white/8 bg-ink-900/40 p-4">
+                <div className="h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-ink">
+                  {p.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={p.imageUrl} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-[0.66rem] text-mist/40">
+                      no img
+                    </div>
+                  )}
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone={meta.tone}>{meta.label}</Badge>
+                    {p.networks.map((n) => (
+                      <span key={n} className="rounded-full border border-white/10 px-2 py-0.5 text-[0.7rem] text-mist">
+                        {NET_LABEL[n] || n}
+                      </span>
+                    ))}
+                    <span className="font-mono text-[0.7rem] text-mist/70">{fmtWhen(p.scheduledAt)}</span>
+                  </div>
+
+                  <p className="mt-2 line-clamp-2 text-[0.88rem] text-bone/90">
+                    {p.caption || <span className="text-mist/50">(senza testo)</span>}
+                  </p>
+
+                  {p.results.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+                      {p.results.map((r, i) => (
+                        <span key={i} className={cx('text-[0.74rem]', r.ok ? 'text-teal-300' : 'text-coral')}>
+                          {r.ok ? '✓' : '✗'} {NET_LABEL[r.network] || r.network}
+                          {!r.ok && r.error ? ` — ${r.error}` : ''}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {p.status === 'pending' && (
+                  <button
+                    onClick={() => doCancel(p.id)}
+                    disabled={cancelingId === p.id}
+                    className="self-start font-mono text-[0.66rem] uppercase tracking-[0.14em] text-mist/60 transition hover:text-coral disabled:opacity-50"
+                  >
+                    {cancelingId === p.id ? '…' : 'Annulla'}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CampaignsView({ setTab }: { setTab: (t: Tab) => void }) {
   const { user, launchCampaign } = useStore();
   const [busy, setBusy] = useState(false);
@@ -862,6 +1013,7 @@ function DashboardInner() {
       {tab === 'overview' && <Overview onTopUp={setTopUp} setTab={setTab} />}
       {tab === 'leads' && <LeadsView />}
       {tab === 'campaigns' && <CampaignsView setTab={setTab} />}
+      {tab === 'social' && <SocialQueueView />}
       {tab === 'video' && <VideoView onTopUp={setTopUp} />}
       {tab === 'kb' && <KbView />}
       {tab === 'account' && <AccountView />}
