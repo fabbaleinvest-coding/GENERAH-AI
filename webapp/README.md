@@ -313,3 +313,49 @@ contesto applicativo (il pagamento non è verificato server-side). Il gating
 reale arriverà con l'integrazione PayPal, che autorizzerà queste due RPC solo a
 fronte di una transazione confermata.
 
+
+## WhatsApp (Meta Cloud API diretta + numeri DIDWW)
+
+Modello: GENERAH (titolare) possiede un **pool di numeri** (comprati su DIDWW e
+registrati su WhatsApp Cloud API di Meta) e ne **assegna uno per utente**
+all'acquisto del pacchetto. Su WhatsApp un numero = una sola identità, quindi
+"condividere" significa un numero dedicato per utente, a carico del titolare.
+
+Componenti software (provider-agnostici per i numeri):
+- `lib/whatsapp.ts` — adapter Cloud API: invio testo/template, parsing webhook,
+  verifica firma. Un token System User copre tutti i numeri del Business; il
+  numero specifico è scelto per ogni invio via `phone_number_id`.
+- `0008_whatsapp.sql` — `wa_numbers` (pool), `wa_messages` (log conversazioni),
+  RPC `assign_wa_number()` (assegna un numero libero, idempotente).
+- `/api/whatsapp/webhook` — GET verifica + POST messaggi in entrata: instrada per
+  `phone_number_id` → numero del pool → utente, registra il messaggio e crea/
+  aggiorna il lead nel CRM. ACK 200 sempre (degrada senza service_role).
+- `/api/whatsapp/send` — invio dal numero assegnato. Dentro la **finestra 24h**
+  invia testo libero (gratis, niente meter); fuori finestra richiede un
+  **template** approvato e scala il meter `whatsapp` (autorevole, lato DB).
+- `/api/whatsapp/assign` — assegna un numero del pool all'utente.
+
+Env (Vercel):
+- `WHATSAPP_TOKEN` — token System User con permessi `whatsapp_business_messaging`
+  e `whatsapp_business_management`.
+- `WHATSAPP_VERIFY_TOKEN` — verifica del webhook (GET).
+- `WHATSAPP_APP_SECRET` — firma del webhook (fallback `META_APP_SECRET`).
+- `WHATSAPP_GRAPH_VERSION` — opzionale (default `v23.0`).
+- `SUPABASE_SERVICE_ROLE_KEY` — scrittura messaggi/lead dal webhook.
+
+Setup manuale (titolare, lato Meta/DIDWW):
+1. Verifica del Business su Meta; crea una o più **WABA** (consigliata una per
+   utente per isolare qualità e identità).
+2. Compra i numeri su DIDWW; registrali su WhatsApp Cloud API (OTP via **voce**,
+   sempre disponibile sui DID). **Valida prima un numero pilota**: Meta può
+   rifiutare alcuni range VoIP.
+3. Per ogni numero approvato fai approvare il **display name** e crea i
+   **template** (categorie marketing/utility/auth).
+4. Inserisci i numeri nel pool `wa_numbers` (e164, waba_id, phone_number_id).
+5. Imposta il webhook dell'app su `/api/whatsapp/webhook` con il verify token e
+   sottoscrivi il campo `messages`.
+
+Resta da fare (prossimi step): UI dashboard del pool + vista conversazioni,
+risposta AI automatica (Opus + RAG, già disponibile la bozza WhatsApp in
+`lib/crmAi.ts`), assegnazione automatica del numero all'attivazione del piano, e
+gli adapter DIDWW (ordine numeri) e voce (trunk SIP DIDWW ↔ OpenAI Realtime).
