@@ -380,3 +380,44 @@ Nota: l'assegnazione scatta su ogni attivazione (demo inclusa), gated dal pool �
 in demo, se non hai ancora caricato numeri, l'utente resta semplicemente "in
 attesa". Se preferisci assegnare solo ai piani a pagamento, basta condizionare la
 chiamata a `ensureWaNumber()` su `mode === 'paid'`.
+
+### Approvvigionamento numeri (DIDWW) · area admin
+
+Adapter `lib/didww.ts` (DIDWW API v3, JSON:API) + route `/api/admin/*` per
+rifornire il pool `wa_numbers`. L'area è riservata: una route admin risponde solo
+se l'email dell'utente è in `ADMIN_EMAILS`.
+
+**Env**
+
+    DIDWW_API_KEY        API key DIDWW (header Api-Key). Senza, l'area degrada.
+    DIDWW_API_BASE       default https://api.didww.com/v3
+                         sandbox  https://sandbox-api.didww.com/v3  (nessun addebito)
+    DIDWW_API_VERSION    opzionale, header X-DIDWW-API-Version (default 2022-05-10)
+    ADMIN_EMAILS         email admin separate da virgola (vuoto = nessun admin)
+
+**Route**
+
+- `GET  /api/admin/didww/groups?country=IT` — DID group + SKU (prezzi, canali) + saldo.
+- `POST /api/admin/didww/order` `{sku_id, qty, confirm:true}` — crea l'ordine
+  (qty 1–10, `confirm:true` obbligatorio: l'ordine costa denaro reale).
+- `POST /api/admin/didww/sync` — legge i DID posseduti (GET /dids) e importa i
+  mancanti nel pool con stato **`suspended`** (grezzi, non assegnabili).
+- `GET/POST/PATCH /api/admin/whatsapp/pool` — lista pool + richieste in attesa;
+  aggiunta manuale di un numero già pronto; attivazione/aggiornamento.
+
+**Pagina** `/admin`: cerca SKU per paese → ordina → *Sincronizza numeri* →
+i DID compaiono come `suspended` → *Attiva* (imposta phone_number_id + stato
+`available`) per renderli assegnabili. In alternativa, *Aggiungi numero pronto*.
+
+**Caveat importanti**
+
+- I numeri sincronizzati da DIDWW entrano come `suspended`: `assign_wa_number`
+  assegna **solo** i `available`, così non si dà mai a un utente un numero non
+  ancora abilitato a WhatsApp. La **registrazione su WhatsApp resta manuale**
+  (verifica proprietà numero + registrazione Cloud API su Meta): DIDWW automatizza
+  solo l'acquisto del numero grezzo, non l'onboarding WhatsApp.
+- Numeri italiani: molti richiedono una **Identity** (documento + indirizzo)
+  approvata su DIDWW prima dell'ordine. Predisponila una volta sul portale DIDWW.
+- Testa prima in **sandbox** (`DIDWW_API_BASE` sandbox): nessun addebito. Gli
+  ordini in produzione sono reali e riservati agli admin.
+- Serve `SUPABASE_SERVICE_ROLE_KEY` (le scritture sul pool bypassano la RLS).
