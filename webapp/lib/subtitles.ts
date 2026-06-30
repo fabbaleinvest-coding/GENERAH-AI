@@ -89,3 +89,29 @@ export function toSrt(cues: SubCue[]): string {
 export function scenesToSrt(scenes: SubScene[]): string {
   return toSrt(buildCues(scenes));
 }
+
+function parseTime(ts: string): number {
+  const m = (ts || '').trim().match(/(\d{1,2}):(\d{2}):(\d{2})[.,](\d{1,3})/);
+  if (!m) return NaN;
+  return +m[1] * 3600 + +m[2] * 60 + +m[3] + +m[4].padEnd(3, '0') / 1000;
+}
+
+/** Parsa una stringa SRT in cue temporizzati: l'inverso di toSrt(). */
+export function parseSrt(srt: string): SubCue[] {
+  const cues: SubCue[] = [];
+  const blocks = (srt || '').replace(/\r/g, '').split(/\n\s*\n/);
+  let index = 1;
+  for (const block of blocks) {
+    const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+    const timeLine = lines.find((l) => l.includes('-->'));
+    if (!timeLine) continue;
+    const [a, b] = timeLine.split('-->');
+    const start = parseTime(a);
+    const end = parseTime(b);
+    if (!isFinite(start) || !isFinite(end) || end <= start) continue;
+    const text = lines.slice(lines.indexOf(timeLine) + 1).join(' ').trim();
+    if (!text) continue;
+    cues.push({ index: index++, start, end, text });
+  }
+  return cues;
+}
