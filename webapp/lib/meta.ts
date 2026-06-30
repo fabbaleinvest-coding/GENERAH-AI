@@ -396,6 +396,99 @@ export async function createAd(
   return r.id;
 }
 
+// ── Custom Audience (lista clienti) + Lookalike ─────────────────────────────
+
+export async function createCustomAudience(
+  cfg: MetaConfig,
+  input: { name: string; description?: string }
+): Promise<string> {
+  const r = await graph<{ id: string }>(`act_${cfg.adAccountId}/customaudiences`, {
+    method: 'POST',
+    token: cfg.accessToken,
+    params: {
+      name: input.name.slice(0, 200),
+      subtype: 'CUSTOM',
+      description: input.description || 'GENERAH AI · lista contatti',
+      customer_file_source: 'USER_PROVIDED_ONLY',
+    },
+    version: cfg.version,
+  });
+  return r.id;
+}
+
+// Aggiunge utenti (già hashati SHA-256) all'audience, in lotti da max 10.000.
+export async function addUsersToAudience(
+  cfg: MetaConfig,
+  audienceId: string,
+  schema: string[],
+  data: string[][]
+): Promise<number> {
+  let received = 0;
+  for (let i = 0; i < data.length; i += 10000) {
+    const chunk = data.slice(i, i + 10000);
+    const r = await graph<{ num_received?: number }>(`${audienceId}/users`, {
+      method: 'POST',
+      token: cfg.accessToken,
+      params: { payload: { schema, data: chunk } },
+      version: cfg.version,
+    });
+    received += r.num_received ?? chunk.length;
+  }
+  return received;
+}
+
+export async function createLookalike(
+  cfg: MetaConfig,
+  input: { name: string; originAudienceId: string; country?: string; ratio?: number }
+): Promise<string> {
+  const ratio = Math.min(0.2, Math.max(0.01, input.ratio ?? 0.03));
+  const r = await graph<{ id: string }>(`act_${cfg.adAccountId}/customaudiences`, {
+    method: 'POST',
+    token: cfg.accessToken,
+    params: {
+      name: input.name.slice(0, 200),
+      subtype: 'LOOKALIKE',
+      origin_audience_id: input.originAudienceId,
+      lookalike_spec: { type: 'similarity', country: input.country || 'IT', ratio },
+    },
+    version: cfg.version,
+  });
+  return r.id;
+}
+
+export interface LookalikeResult {
+  customAudienceId: string;
+  lookalikeId: string | null;
+  received: number;
+  note?: string;
+}
+
+// Orchestratore: lista hashata → custom audience → utenti → lookalike.
+export async function buildLookalikeAudience(
+  cfg: MetaConfig,
+  input: { schema: string[]; data: string[][]; label?: string; country?: string; ratio?: number }
+): Promise<LookalikeResult> {
+  const label = input.label || 'GENERAH';
+  const customAudienceId = await createCustomAudience(cfg, { name: `${label} · Lista contatti` });
+  const received = await addUsersToAudience(cfg, customAudienceId, input.schema, input.data);
+
+  // Il lookalike richiede un seed con abbastanza utenti corrisposti: se Meta lo
+  // rifiuta (lista troppo piccola / in elaborazione) non si fa fallire tutto.
+  let lookalikeId: string | null = null;
+  let note: string | undefined;
+  try {
+    lookalikeId = await createLookalike(cfg, {
+      name: `${label} · Lookalike`,
+      originAudienceId: customAudienceId,
+      country: input.country,
+      ratio: input.ratio,
+    });
+  } catch (e) {
+    note = e instanceof MetaError ? e.message : 'Lookalike non creato (seed in elaborazione o troppo piccolo)';
+  }
+  return { customAudienceId, lookalikeId, received, note };
+}
+
 // ── Orchestratore: brief → campagna lead pubblicata ─────────────────────────
 
 export interface PublishBrief {

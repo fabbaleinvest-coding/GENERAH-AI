@@ -172,3 +172,17 @@ eseguito, la pubblicazione ricade sulla prima clip generata.
 Setup una tantum: esegui `supabase/migrations/0002_ad_spots_bucket.sql` nel SQL
 editor di Supabase (crea il bucket pubblico `ad-spots` con upload nella cartella
 del singolo utente).
+
+### Lookalike dalla lista contatti
+
+Nello step "Budget e pubblico" l'admin carica una lista (.csv o .xlsx) di
+contatti. Il file viene parsato e **hashato (SHA-256) nel browser**: la PII in
+chiaro non lascia mai il client. Al server (`/api/ads/meta/lookalike`) arrivano
+solo gli hash, da cui si crea una Custom Audience (lista clienti) e poi una
+Lookalike; l'id della lookalike viene aggiunto al targeting della campagna.
+
+Prerequisito Meta: i **Custom Audience Terms** vanno accettati una volta in
+Gestione Inserzioni (Audiences → crea una custom audience) — altrimenti l'API
+risponde con errore. Il lookalike richiede un seed con abbastanza utenti
+corrisposti (idealmente 100+); con liste piccole Meta può rifiutarlo o tenerlo
+in elaborazione: in tal caso la campagna parte comunque, senza il lookalike.

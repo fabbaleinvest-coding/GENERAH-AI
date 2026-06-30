@@ -238,7 +238,7 @@ function IntegrationTag({ children }: { children: React.ReactNode }) {
 }
 
 function OnboardingInner() {
-  const { user, addKb, removeKb, connectSocial, scheduleSocialPosts, generateSocialPlan, skipSocial, connectMeta, skipPhase2, launchCampaign, generateCampaignBrief, generateAdVideo, publishMetaCampaign, useVideoConsult, finishOnboarding } = useStore();
+  const { user, addKb, removeKb, connectSocial, scheduleSocialPosts, generateSocialPlan, skipSocial, connectMeta, skipPhase2, launchCampaign, generateCampaignBrief, generateAdVideo, publishMetaCampaign, buildLookalike, useVideoConsult, finishOnboarding } = useStore();
   const router = useRouter();
   const [step, setStep] = useState<Step>('kb');
   const fileRef = useRef<HTMLInputElement>(null);
@@ -277,6 +277,10 @@ function OnboardingInner() {
   const [geo, setGeo] = useState('Milano + 25 km');
   const [ageRange, setAgeRange] = useState('25-54');
   const [contacts, setContacts] = useState<number>(0);
+  const [lookalikeAudienceId, setLookalikeAudienceId] = useState('');
+  const [xlsBusy, setXlsBusy] = useState(false);
+  const [xlsStatus, setXlsStatus] = useState('');
+  const [xlsErr, setXlsErr] = useState('');
   const [launched, setLaunched] = useState(false);
   const [metaResult, setMetaResult] = useState<{ ok: boolean; configured: boolean; reason?: string; ids?: { campaignId: string }; error?: string } | null>(null);
   const [metaBusy, setMetaBusy] = useState(false);
@@ -381,9 +385,29 @@ function OnboardingInner() {
     if ((e.target.files?.length ?? 0) > 0) setPhotoReady(true);
     e.target.value = '';
   }
-  function onPickXls(e: React.ChangeEvent<HTMLInputElement>) {
-    if ((e.target.files?.length ?? 0) > 0) setContacts(100 + Math.floor(Math.random() * 380));
+  async function onPickXls(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
     e.target.value = '';
+    if (!file) return;
+    setXlsBusy(true);
+    setXlsErr('');
+    setXlsStatus('');
+    setLookalikeAudienceId('');
+    const r = await buildLookalike(file);
+    setXlsBusy(false);
+    if (typeof r.count === 'number') setContacts(r.count);
+    if (!r.ok) {
+      setXlsErr(r.error || 'Creazione lookalike non riuscita.');
+      return;
+    }
+    if (r.lookalikeId) {
+      setLookalikeAudienceId(r.lookalikeId);
+      setXlsStatus('Pubblico simile (lookalike) creato e pronto per la campagna.');
+    } else if (r.configured === false) {
+      setXlsStatus('Lista letta. Collega Meta per generare il lookalike alla pubblicazione.');
+    } else {
+      setXlsStatus(r.note || 'Lista caricata su Meta. Il lookalike sarà disponibile a elaborazione completata.');
+    }
   }
 
   async function doLaunch() {
@@ -398,6 +422,7 @@ function OnboardingInner() {
         dailyBudgetEur: budget,
         geoText: geo,
         ageRange,
+        customAudienceIds: lookalikeAudienceId ? [lookalikeAudienceId] : undefined,
       });
     }
     setMetaResult(meta);
@@ -1105,17 +1130,25 @@ function OnboardingInner() {
                 <p className="text-[0.9rem] font-medium text-bone">Pubblico simile (lookalike)</p>
                 <p className="text-[0.8rem] text-mist/70">Carica un file Excel/CSV con almeno 100 contatti.</p>
               </div>
-              <Button size="sm" variant="outline" onClick={() => xlsRef.current?.click()}>
-                Carica lista
+              <Button size="sm" variant="outline" disabled={xlsBusy} onClick={() => xlsRef.current?.click()}>
+                {xlsBusy ? (
+                  <>
+                    <Spinner className="h-4 w-4" /> Elaborazione…
+                  </>
+                ) : (
+                  'Carica lista'
+                )}
               </Button>
               <input ref={xlsRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onPickXls} />
             </div>
             {contacts > 0 && (
               <p className="mt-3 flex items-center gap-2 text-[0.84rem] text-teal-200">
                 <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M5 13l4 4L19 7" /></svg>
-                {contacts} contatti rilevati · lookalike attivabile.
+                {contacts} contatti elaborati (hashati nel browser).
               </p>
             )}
+            {xlsStatus && <p className="mt-1.5 text-[0.82rem] text-mist/80">{xlsStatus}</p>}
+            {xlsErr && <p className="mt-1.5 text-[0.82rem] text-coral">{xlsErr}</p>}
           </div>
 
           {!launched ? (

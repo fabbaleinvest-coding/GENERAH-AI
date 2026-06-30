@@ -15,6 +15,7 @@ import {
 } from './plans';
 import { supabase, KB_BUCKET, AD_SPOTS_BUCKET } from './supabase';
 import { scenesToSrt } from './subtitles';
+import { prepareContacts } from './contacts';
 
 // ─────────────────────────────────────────────────────────────────────────
 //  GENERAH IT · store reale su Supabase (DB + Auth + Storage).
@@ -386,12 +387,27 @@ interface StoreCtx {
   ) => Promise<{ ok: boolean; clips: string[]; audioUrl: string | null; srt: string; error?: string }>;
   publishMetaCampaign: (
     brief: CampaignBrief,
-    params: { videoUrl: string; dailyBudgetEur: number; geoText?: string; ageRange?: string }
+    params: {
+      videoUrl: string;
+      dailyBudgetEur: number;
+      geoText?: string;
+      ageRange?: string;
+      customAudienceIds?: string[];
+    }
   ) => Promise<{
     ok: boolean;
     configured: boolean;
     reason?: string;
     ids?: { campaignId: string; adSetId: string; adId: string; leadFormId: string };
+    error?: string;
+  }>;
+  buildLookalike: (file: File) => Promise<{
+    ok: boolean;
+    configured: boolean;
+    count?: number;
+    lookalikeId?: string | null;
+    customAudienceId?: string;
+    note?: string;
     error?: string;
   }>;
   uploadAdSpot: (blob: Blob) => Promise<{ ok: boolean; url?: string; error?: string }>;
@@ -851,6 +867,41 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Lookalike: parsa+hasha la lista contatti NEL BROWSER (la PII non esce dal
+  // client), poi invia i soli hash al server che crea custom audience + lookalike.
+  const buildLookalike: StoreCtx['buildLookalike'] = async (file) => {
+    try {
+      const prep = await prepareContacts(file);
+      if (!prep.ok) return { ok: false, configured: true, error: prep.error };
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      if (!token) return { ok: false, configured: false, error: 'Sessione non disponibile' };
+      const res = await fetch('/api/ads/meta/lookalike', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          schema: prep.audience.schema,
+          data: prep.audience.data,
+          country: 'IT',
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { ok: false, configured: true, count: prep.audience.count, error: String(d?.error || `HTTP ${res.status}`) };
+      }
+      return {
+        ok: !!d?.ok,
+        configured: d?.configured !== false,
+        count: prep.audience.count,
+        lookalikeId: d?.lookalikeId ?? null,
+        customAudienceId: d?.customAudienceId,
+        note: d?.note,
+        error: d?.error,
+      };
+    } catch (e) {
+      return { ok: false, configured: false, error: (e as Error).message };
+    }
+  };
+
   const skipPhase2 = () => mutateUser((u) => ({ ...u, phase2Skipped: true }));
   const useVideoConsult = () => mutateUser((u) => ({ ...u, videoConsultUsed: true }));
   const finishOnboarding = () => mutateUser((u) => ({ ...u, onboardingDone: true }));
@@ -1031,6 +1082,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           dailyBudgetEur: params.dailyBudgetEur,
           geoText: params.geoText,
           ageRange: params.ageRange,
+          customAudienceIds: params.customAudienceIds,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1184,6 +1236,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     generateCampaignBrief,
     generateAdVideo,
     publishMetaCampaign,
+    buildLookalike,
     uploadAdSpot,
     addLead,
     updateLead,
