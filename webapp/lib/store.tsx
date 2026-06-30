@@ -16,6 +16,22 @@ import {
 import { supabase, KB_BUCKET, AD_SPOTS_BUCKET } from './supabase';
 import { scenesToSrt } from './subtitles';
 import { prepareContacts } from './contacts';
+import {
+  type SectorKind,
+  type AutomationGoal,
+  type LeadEvent,
+  type LeadEventType,
+  type Appointment,
+  type ApptStatus,
+  parseLeadsFromFile,
+  loadLeadEvents,
+  addLeadEvent,
+  loadAppointments,
+  addAppointment,
+  updateAppointment,
+  removeAppointment,
+  logAutomationRun,
+} from './crm';
 
 // ─────────────────────────────────────────────────────────────────────────
 //  GENERAH IT · store reale su Supabase (DB + Auth + Storage).
@@ -109,6 +125,11 @@ export interface Lead {
   aiSummary: string;
   nextAction: string;
   aiDraft: AiDraft | null;
+  // CRM operativo
+  tags: string[];
+  importBatch: string | null;
+  consent: boolean;
+  automationPaused: boolean;
   createdAt: number;
   lastTouch: number;
 }
@@ -230,6 +251,11 @@ export interface User {
   videoConsultUsed: boolean;
   onboardingDone: boolean;
   waAutoreply: boolean; // auto-reply WhatsApp AI attivo (default true)
+  // CRM autonomo (testa)
+  sectorKind: SectorKind | null;
+  automationGoal: AutomationGoal | null;
+  crmAutonomy: 'auto' | 'approva';
+  crmBusinessHours: Record<string, unknown>;
   // dati
   campaigns: Campaign[];
   leads: Lead[];
@@ -276,6 +302,10 @@ function leadToRow(userId: string, l: Lead) {
     ai_summary: l.aiSummary,
     next_action: l.nextAction,
     ai_draft: l.aiDraft,
+    tags: l.tags ?? [],
+    import_batch: l.importBatch ?? null,
+    consent: l.consent ?? false,
+    automation_paused: l.automationPaused ?? false,
     created_at: new Date(l.createdAt).toISOString(),
     last_touch: new Date(l.lastTouch).toISOString(),
   };
@@ -296,6 +326,10 @@ function leadFromRow(r: any): Lead {
     aiSummary: r.ai_summary ?? '',
     nextAction: r.next_action ?? '',
     aiDraft: (r.ai_draft ?? null) as AiDraft | null,
+    tags: Array.isArray(r.tags) ? (r.tags as string[]) : [],
+    importBatch: r.import_batch ?? null,
+    consent: !!r.consent,
+    automationPaused: !!r.automation_paused,
     createdAt: r.created_at ? Date.parse(r.created_at) : Date.now(),
     lastTouch: r.last_touch ? Date.parse(r.last_touch) : Date.now(),
   };
@@ -409,6 +443,10 @@ function rowToUser(r: any): User {
     videoConsultUsed: !!r.video_consult_used,
     onboardingDone: !!r.onboarding_done,
     waAutoreply: r.wa_autoreply !== false,
+    sectorKind: (r.sector_kind ?? null) as SectorKind | null,
+    automationGoal: (r.automation_goal ?? null) as AutomationGoal | null,
+    crmAutonomy: (r.crm_autonomy ?? 'auto') as 'auto' | 'approva',
+    crmBusinessHours: (r.crm_business_hours ?? {}) as Record<string, unknown>,
     campaigns: Array.isArray(r.campaigns) ? (r.campaigns as Campaign[]) : [],
     leads: Array.isArray(r.leads) ? (r.leads as Lead[]) : [],
     alerts: Array.isArray(r.alerts) ? (r.alerts as AlertItem[]) : [],
@@ -441,6 +479,10 @@ function userToRow(u: User) {
     video_consult_used: u.videoConsultUsed,
     onboarding_done: u.onboardingDone,
     wa_autoreply: u.waAutoreply,
+    sector_kind: u.sectorKind,
+    automation_goal: u.automationGoal,
+    crm_autonomy: u.crmAutonomy,
+    crm_business_hours: u.crmBusinessHours,
     campaigns: u.campaigns,
     alerts: u.alerts,
   };
@@ -567,10 +609,59 @@ interface StoreCtx {
     error?: string;
   }>;
   uploadAdSpot: (blob: Blob) => Promise<{ ok: boolean; url?: string; error?: string }>;
-  addLead: (l: Omit<Lead, 'id' | 'createdAt' | 'lastTouch'>) => void;
+  addLead: (
+    l: Omit<Lead, 'id' | 'createdAt' | 'lastTouch' | 'tags' | 'importBatch' | 'consent' | 'automationPaused'> &
+      Partial<Pick<Lead, 'tags' | 'importBatch' | 'consent' | 'automationPaused'>>
+  ) => void;
   updateLead: (id: string, patch: Partial<Lead>) => void;
   enrichLead: (id: string) => Promise<{ ok: boolean; error?: string }>;
   removeLead: (id: string) => void;
+  // CRM avanzato
+  classifySector: () => Promise<{
+    ok: boolean;
+    error?: string;
+    sectorKind?: SectorKind | null;
+    automationGoal?: AutomationGoal | null;
+    rationale?: string;
+  }>;
+  setCrmAutonomy: (mode: 'auto' | 'approva') => void;
+  automateLead: (
+    id: string,
+    opts?: { force?: boolean }
+  ) => Promise<{
+    ok: boolean;
+    error?: string;
+    duplicate?: boolean;
+    result?: {
+      automation: string;
+      channel: string;
+      summary: string;
+      emailSubject: string;
+      message: string;
+      appointment: { title: string; whenHint: string } | null;
+      newStatus: string;
+      mode: 'auto' | 'approva';
+    };
+  }>;
+  importLeadsFile: (file: File) => Promise<{ ok: boolean; count: number; batch?: string; error?: string }>;
+  leadTimeline: (leadId: string) => Promise<LeadEvent[]>;
+  addLeadNote: (leadId: string, note: string, type?: LeadEventType) => Promise<LeadEvent | null>;
+  listAppointments: () => Promise<Appointment[]>;
+  createAppointment: (a: {
+    leadId?: string | null;
+    title: string;
+    startsAt: number;
+    endsAt?: number | null;
+    status?: ApptStatus;
+    location?: string | null;
+    notes?: string | null;
+    createdBy?: 'ai' | 'admin';
+  }) => Promise<Appointment | null>;
+  editAppointment: (
+    id: string,
+    patch: Partial<Pick<Appointment, 'title' | 'startsAt' | 'endsAt' | 'status' | 'location' | 'notes'>>
+  ) => Promise<void>;
+  deleteAppointment: (id: string) => Promise<void>;
   markAlertsRead: () => void;
   resetAll: () => void;
 }
@@ -609,6 +700,10 @@ function makeLead(source: string, channel: string): Lead {
     aiSummary: '',
     nextAction: '',
     aiDraft: null,
+    tags: [],
+    importBatch: null,
+    consent: false,
+    automationPaused: false,
     createdAt: Date.now(),
     lastTouch: Date.now(),
   };
@@ -1336,7 +1431,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const addLead: StoreCtx['addLead'] = (l) => {
     const u = userRef.current;
     if (!u) return;
-    const lead: Lead = { ...l, id: leadId(), createdAt: Date.now(), lastTouch: Date.now() };
+    const lead: Lead = {
+      tags: [],
+      importBatch: null,
+      consent: false,
+      automationPaused: false,
+      ...l,
+      id: leadId(),
+      createdAt: Date.now(),
+      lastTouch: Date.now(),
+    };
     setUser((prev) => (prev ? { ...prev, leads: [lead, ...prev.leads] } : prev));
     void supabase.from('leads').insert(leadToRow(u.id, lead));
   };
@@ -1359,6 +1463,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if ('aiSummary' in patch) dbPatch.ai_summary = patch.aiSummary;
     if ('nextAction' in patch) dbPatch.next_action = patch.nextAction;
     if ('aiDraft' in patch) dbPatch.ai_draft = patch.aiDraft;
+    if ('tags' in patch) dbPatch.tags = patch.tags;
+    if ('importBatch' in patch) dbPatch.import_batch = patch.importBatch;
+    if ('consent' in patch) dbPatch.consent = patch.consent;
+    if ('automationPaused' in patch) dbPatch.automation_paused = patch.automationPaused;
     void supabase.from('leads').update(dbPatch).eq('id', id).eq('user_id', u.id);
   };
 
@@ -1433,6 +1541,203 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const merged = Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt);
       return { ...prev, leads: merged };
     });
+  };
+
+  // ── CRM avanzato ───────────────────────────────────────────────────────────
+  async function authToken(): Promise<string | undefined> {
+    return (await supabase.auth.getSession()).data.session?.access_token;
+  }
+
+  // Classifica il settore operativo + l'obiettivo dell'automazione dalla KB (Opus).
+  const classifySector: StoreCtx['classifySector'] = async () => {
+    const u = userRef.current;
+    if (!u) return { ok: false, error: 'Utente non disponibile' };
+    try {
+      const token = await authToken();
+      const res = await fetch('/api/crm/classify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ nome: u.nome, settore: u.settore, kbFiles: u.kb.map((f) => f.name) }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { ok: false, error: String(data?.error || `HTTP ${res.status}`) };
+      const sectorKind = (data?.sectorKind ?? null) as SectorKind | null;
+      const automationGoal = (data?.automationGoal ?? null) as AutomationGoal | null;
+      mutateUser((cur) => ({ ...cur, sectorKind, automationGoal }));
+      return { ok: true, sectorKind, automationGoal, rationale: String(data?.rationale || '') };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  };
+
+  const setCrmAutonomy: StoreCtx['setCrmAutonomy'] = (mode) => {
+    mutateUser((cur) => ({ ...cur, crmAutonomy: mode }));
+  };
+
+  // Esegue (o prepara) la prossima azione automatica sul lead. Idempotente:
+  // registra un automation_run con dedupe_key per evitare doppioni.
+  const automateLead: StoreCtx['automateLead'] = async (id, opts) => {
+    const u = userRef.current;
+    if (!u) return { ok: false, error: 'Utente non disponibile' };
+    const lead = u.leads.find((l) => l.id === id);
+    if (!lead) return { ok: false, error: 'Lead non trovato' };
+    if (lead.automationPaused) return { ok: false, error: 'Automazione in pausa per questo lead' };
+    try {
+      const token = await authToken();
+      const res = await fetch('/api/crm/automation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({
+          lead: {
+            name: lead.name,
+            email: lead.email,
+            phone: lead.phone,
+            channel: lead.channel,
+            interest: lead.interest,
+            status: lead.status,
+            notes: lead.notes,
+            tags: lead.tags,
+          },
+          nome: u.nome,
+          settore: u.settore,
+          sectorKind: u.sectorKind,
+          automationGoal: u.automationGoal,
+          autonomy: u.crmAutonomy,
+          kbFiles: u.kb.map((f) => f.name),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { ok: false, error: String(data?.error || `HTTP ${res.status}`) };
+
+      const automation = String(data?.automation || 'followup');
+      const channel = String(data?.channel || 'whatsapp');
+      const message = String(data?.message || '');
+      const summary = String(data?.summary || '');
+      const emailSubject = String(data?.emailSubject || '');
+      const newStatus = String(data?.newStatus || lead.status);
+      const appointment =
+        data?.appointment && typeof data.appointment === 'object'
+          ? { title: String(data.appointment.title || ''), whenHint: String(data.appointment.whenHint || '') }
+          : null;
+
+      // Idempotenza: un solo run per (lead, automazione) salvo retry esplicito.
+      const dedupeKey = opts?.force ? null : `${id}:${automation}`;
+      const run = await logAutomationRun(supabase, u.id, {
+        leadId: id,
+        automation,
+        dedupeKey,
+        status: u.crmAutonomy === 'auto' ? 'done' : 'pending',
+        detail: summary,
+      });
+      if (!run.ok && run.duplicate && !opts?.force) {
+        return { ok: false, duplicate: true, error: 'Azione già eseguita per questo lead.' };
+      }
+
+      // Timeline: registra l'azione con il messaggio prodotto.
+      await addLeadEvent(supabase, u.id, {
+        leadId: id,
+        type: 'ai',
+        channel,
+        summary: summary || `Azione automatica: ${automation}`,
+        payload: { automation, channel, emailSubject, message, mode: u.crmAutonomy },
+      });
+
+      // In modalità autonoma avanza lo stato del lead.
+      if (u.crmAutonomy === 'auto' && newStatus && newStatus !== lead.status) {
+        updateLead(id, { status: newStatus as LeadStatus });
+      } else {
+        updateLead(id, { lastTouch: Date.now() });
+      }
+
+      return {
+        ok: true,
+        result: { automation, channel, summary, emailSubject, message, appointment, newStatus, mode: u.crmAutonomy },
+      };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  };
+
+  // Import lista lead da Excel/CSV (lato browser): parsing + bulk insert taggato.
+  const importLeadsFile: StoreCtx['importLeadsFile'] = async (file) => {
+    const u = userRef.current;
+    if (!u) return { ok: false, count: 0, error: 'Utente non disponibile' };
+    try {
+      const parsed = await parseLeadsFromFile(file);
+      if (parsed.rows.length === 0) return { ok: false, count: 0, error: 'Nessun contatto valido nel file.' };
+      const batch = `import-${new Date().toISOString().slice(0, 16).replace('T', ' ')}`;
+      const now = Date.now();
+      const leads: Lead[] = parsed.rows.map((r) => ({
+        id: leadId(),
+        name: r.name,
+        phone: r.phone,
+        email: r.email,
+        source: 'Import lista',
+        channel: 'Lista importata',
+        interest: r.interest,
+        status: 'nuovo' as LeadStatus,
+        score: 0,
+        notes: r.notes,
+        aiSummary: '',
+        nextAction: '',
+        aiDraft: null,
+        tags: ['import'],
+        importBatch: batch,
+        consent: false,
+        automationPaused: false,
+        createdAt: now,
+        lastTouch: now,
+      }));
+      setUser((prev) => (prev ? { ...prev, leads: [...leads, ...prev.leads] } : prev));
+      const { error } = await supabase.from('leads').insert(leads.map((l) => leadToRow(u.id, l)));
+      if (error) return { ok: false, count: 0, error: error.message };
+      return { ok: true, count: leads.length, batch };
+    } catch (e) {
+      return { ok: false, count: 0, error: (e as Error).message };
+    }
+  };
+
+  // Timeline di un lead (lead_events).
+  const leadTimeline: StoreCtx['leadTimeline'] = async (leadId) => {
+    return loadLeadEvents(supabase, leadId);
+  };
+
+  // Aggiunge una nota/evento manuale alla timeline.
+  const addLeadNote: StoreCtx['addLeadNote'] = async (leadId, note, type) => {
+    const u = userRef.current;
+    if (!u) return null;
+    return addLeadEvent(supabase, u.id, { leadId, type: type ?? 'nota', summary: note });
+  };
+
+  // ── Calendario interno (appointments) ───────────────────────────────────────
+  const listAppointments: StoreCtx['listAppointments'] = async () => {
+    const u = userRef.current;
+    if (!u) return [];
+    return loadAppointments(supabase, u.id);
+  };
+  const createAppointment: StoreCtx['createAppointment'] = async (a) => {
+    const u = userRef.current;
+    if (!u) return null;
+    const appt = await addAppointment(supabase, u.id, a);
+    if (appt && a.leadId) {
+      await addLeadEvent(supabase, u.id, {
+        leadId: a.leadId,
+        type: 'appuntamento',
+        summary: `Appuntamento: ${a.title}`,
+        payload: { startsAt: a.startsAt, status: appt.status },
+      });
+    }
+    return appt;
+  };
+  const editAppointment: StoreCtx['editAppointment'] = async (id, patch) => {
+    const u = userRef.current;
+    if (!u) return;
+    await updateAppointment(supabase, u.id, id, patch);
+  };
+  const deleteAppointment: StoreCtx['deleteAppointment'] = async (id) => {
+    const u = userRef.current;
+    if (!u) return;
+    await removeAppointment(supabase, u.id, id);
   };
 
   // Legge la coda di pubblicazione social (social_posts_queue) dell'utente.
@@ -1756,6 +2061,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     enrichLead,
     removeLead,
     refreshLeads,
+    classifySector,
+    setCrmAutonomy,
+    automateLead,
+    importLeadsFile,
+    leadTimeline,
+    addLeadNote,
+    listAppointments,
+    createAppointment,
+    editAppointment,
+    deleteAppointment,
     fetchSocialQueue,
     cancelSocialPost,
     fetchWaMessages,

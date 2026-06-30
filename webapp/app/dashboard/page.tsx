@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useEffect, useCallback, Fragment } from 'react';
+import { useMemo, useState, useEffect, useCallback, useRef, Fragment, type ChangeEvent } from 'react';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
 import {
@@ -12,6 +12,14 @@ import {
   num,
 } from '@/lib/plans';
 import { Lead, LeadStatus, LeadStatusOrder, KbFile, KbSource, QueuedSocialPost, QueuedPostStatus, WaMessage } from '@/lib/store';
+import {
+  type LeadEvent,
+  type Appointment,
+  type ApptStatus,
+  SECTOR_LABEL,
+  GOAL_LABEL,
+  APPT_STATUS_LABEL,
+} from '@/lib/crm';
 import { Guard } from '@/components/Guard';
 import { AppShell } from '@/components/AppShell';
 import { MeterBar } from '@/components/Meters';
@@ -20,11 +28,12 @@ import { Container, Button, Badge, Photo, Spinner, cx } from '@/components/ui';
 import VideoConsult from '@/components/VideoConsult';
 import { IMG } from '@/lib/images';
 
-type Tab = 'overview' | 'leads' | 'whatsapp' | 'campaigns' | 'social' | 'video' | 'kb' | 'account';
+type Tab = 'overview' | 'leads' | 'calendario' | 'whatsapp' | 'campaigns' | 'social' | 'video' | 'kb' | 'account';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'overview', label: 'Panoramica' },
   { id: 'leads', label: 'Lead · CRM' },
+  { id: 'calendario', label: 'Calendario' },
   { id: 'whatsapp', label: 'WhatsApp' },
   { id: 'campaigns', label: 'Campagne' },
   { id: 'social', label: 'Post social' },
@@ -158,6 +167,408 @@ function Overview({ onTopUp, setTab }: { onTopUp: (m: MeterKey) => void; setTab:
 }
 
 // ════════════════════════════ LEADS / CRM ════════════════════════════
+// ════════════════════════════ LEADS · CRM ════════════════════════════
+
+function fmtDateTime(ts: number): string {
+  try {
+    return new Date(ts).toLocaleString('it-IT', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return new Date(ts).toISOString();
+  }
+}
+
+const EVENT_META: Record<string, { label: string; dot: string }> = {
+  ai: { label: 'Azione AI', dot: 'bg-teal-300' },
+  nota: { label: 'Nota', dot: 'bg-mist/50' },
+  stato: { label: 'Cambio stato', dot: 'bg-amber-soft' },
+  email: { label: 'Email', dot: 'bg-sky-300' },
+  whatsapp: { label: 'WhatsApp', dot: 'bg-emerald-300' },
+  chiamata: { label: 'Chiamata', dot: 'bg-sky-300' },
+  appuntamento: { label: 'Appuntamento', dot: 'bg-teal-300' },
+  import: { label: 'Import', dot: 'bg-mist/50' },
+};
+
+// Striscia "testa del CRM autonomo": settore operativo + obiettivo + autonomia.
+function CrmHeader() {
+  const { user, classifySector, setCrmAutonomy } = useStore();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  if (!user) return null;
+
+  async function classify() {
+    setBusy(true);
+    setErr('');
+    const r = await classifySector();
+    setBusy(false);
+    if (!r.ok) setErr(r.error || 'Errore di classificazione');
+  }
+
+  return (
+    <div className="rounded-2xl border border-white/8 bg-ink-900/40 p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <div>
+            <p className="font-mono text-[0.58rem] uppercase tracking-[0.16em] text-mist/60">Settore operativo</p>
+            <p className="mt-0.5 text-[0.9rem] font-medium text-bone">
+              {user.sectorKind ? SECTOR_LABEL[user.sectorKind] : <span className="text-mist/60">Da classificare</span>}
+            </p>
+          </div>
+          <div>
+            <p className="font-mono text-[0.58rem] uppercase tracking-[0.16em] text-mist/60">Obiettivo automazione</p>
+            <p className="mt-0.5 text-[0.9rem] font-medium text-bone">
+              {user.automationGoal ? GOAL_LABEL[user.automationGoal] : <span className="text-mist/60">—</span>}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* autonomia */}
+          <div className="flex items-center rounded-full border border-white/10 bg-ink/60 p-0.5 text-[0.74rem]">
+            <button
+              onClick={() => setCrmAutonomy('auto')}
+              className={cx('rounded-full px-3 py-1 transition', user.crmAutonomy === 'auto' ? 'bg-teal-400 text-ink-900' : 'text-mist hover:text-bone')}
+            >
+              Autonomo
+            </button>
+            <button
+              onClick={() => setCrmAutonomy('approva')}
+              className={cx('rounded-full px-3 py-1 transition', user.crmAutonomy === 'approva' ? 'bg-teal-400 text-ink-900' : 'text-mist hover:text-bone')}
+            >
+              Con approvazione
+            </button>
+          </div>
+          <Button size="sm" variant="outline" onClick={classify} disabled={busy}>
+            {busy ? <Spinner className="h-4 w-4" /> : user.sectorKind ? 'Riclassifica' : 'Classifica con AI'}
+          </Button>
+        </div>
+      </div>
+      {err && (
+        <p className="mt-2 text-[0.78rem] text-amber-soft">
+          {err.includes('ANTHROPIC_API_KEY') ? 'Imposta ANTHROPIC_API_KEY per attivare la classificazione AI.' : err}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// Editor dei tag del lead (chips con add/remove).
+function TagRow({ lead }: { lead: Lead }) {
+  const { updateLead } = useStore();
+  const [val, setVal] = useState('');
+  const tags = lead.tags ?? [];
+  function add() {
+    const t = val.trim();
+    if (!t || tags.includes(t)) {
+      setVal('');
+      return;
+    }
+    updateLead(lead.id, { tags: [...tags, t] });
+    setVal('');
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {tags.map((t) => (
+        <span key={t} className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[0.72rem] text-mist">
+          {t}
+          <button onClick={() => updateLead(lead.id, { tags: tags.filter((x) => x !== t) })} className="text-mist/50 hover:text-coral">×</button>
+        </span>
+      ))}
+      <input
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && add()}
+        placeholder="+ tag"
+        className="w-20 rounded-full border border-white/10 bg-ink/60 px-2.5 py-0.5 text-[0.72rem] text-bone placeholder:text-mist/40 focus:border-teal-300/60 focus:outline-none"
+      />
+    </div>
+  );
+}
+
+// Timeline del lead (lead_events) con aggiunta nota manuale.
+function LeadTimeline({ lead }: { lead: Lead }) {
+  const { leadTimeline, addLeadNote } = useStore();
+  const [events, setEvents] = useState<LeadEvent[] | null>(null);
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    const ev = await leadTimeline(lead.id);
+    setEvents(ev);
+  }, [leadTimeline, lead.id]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function saveNote() {
+    const t = note.trim();
+    if (!t) return;
+    setSaving(true);
+    await addLeadNote(lead.id, t, 'nota');
+    setNote('');
+    setSaving(false);
+    void load();
+  }
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-ink-900/50 p-4">
+      <p className="text-[0.68rem] uppercase tracking-wide text-mist/50">Timeline</p>
+      <div className="mt-2 flex gap-2">
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && saveNote()}
+          placeholder="Aggiungi una nota…"
+          className="flex-1 rounded-lg border border-white/10 bg-ink/70 px-3 py-1.5 text-[0.82rem] text-bone placeholder:text-mist/40 focus:border-teal-300/60 focus:outline-none"
+        />
+        <Button size="sm" variant="ghost" onClick={saveNote} disabled={saving}>Aggiungi</Button>
+      </div>
+      <div className="mt-3 space-y-2">
+        {events === null ? (
+          <p className="text-[0.8rem] text-mist/60">Carico la cronologia…</p>
+        ) : events.length === 0 ? (
+          <p className="text-[0.8rem] text-mist/50">Nessun evento ancora.</p>
+        ) : (
+          events.map((e) => {
+            const meta = EVENT_META[e.type] || EVENT_META.nota;
+            return (
+              <div key={e.id} className="flex gap-2.5">
+                <span className={cx('mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full', meta.dot)} />
+                <div className="min-w-0">
+                  <p className="text-[0.82rem] text-bone/90">{e.summary}</p>
+                  <p className="text-[0.68rem] text-mist/50">
+                    {meta.label}
+                    {e.channel ? ` · ${e.channel}` : ''} · {fmtDateTime(e.createdAt)}
+                  </p>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Motore di automazione sul singolo lead (Opus): esegue/prepara la prossima azione.
+function LeadAutomation({ lead, onChanged }: { lead: Lead; onChanged: () => void }) {
+  const { user, automateLead, createAppointment } = useStore();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [res, setRes] = useState<NonNullable<Awaited<ReturnType<typeof automateLead>>['result']> | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [appt, setAppt] = useState<'idle' | 'done'>('idle');
+
+  async function run(force = false) {
+    setBusy(true);
+    setErr('');
+    const r = await automateLead(lead.id, { force });
+    setBusy(false);
+    if (!r.ok) {
+      setErr(r.duplicate ? 'Azione già eseguita per questo lead. Usa "Rigenera" per forzarla.' : r.error || 'Errore');
+      return;
+    }
+    setRes(r.result ?? null);
+    onChanged();
+  }
+
+  async function book() {
+    if (!res?.appointment) return;
+    const when = new Date();
+    when.setDate(when.getDate() + 2);
+    when.setHours(10, 0, 0, 0);
+    await createAppointment({
+      leadId: lead.id,
+      title: res.appointment.title || `Appuntamento · ${lead.name}`,
+      startsAt: when.getTime(),
+      status: 'proposed',
+      notes: res.appointment.whenHint ? `Preferenza: ${res.appointment.whenHint}` : null,
+      createdBy: 'ai',
+    });
+    setAppt('done');
+  }
+
+  const autonomy = user?.crmAutonomy ?? 'auto';
+
+  return (
+    <div className="rounded-xl border border-teal-300/20 bg-teal-400/[0.03] p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-mono text-[0.6rem] uppercase tracking-[0.16em] text-teal-200/70">Automazione · Opus 4.8</span>
+        {!res && (
+          <Button size="sm" onClick={() => run(false)} disabled={busy} className="ml-auto">
+            {busy ? <Spinner className="h-4 w-4" /> : autonomy === 'auto' ? 'Esegui azione' : 'Prepara azione'}
+          </Button>
+        )}
+        {res && (
+          <button onClick={() => run(true)} className="ml-auto text-[0.76rem] text-mist underline-offset-2 hover:text-teal-200 hover:underline">Rigenera</button>
+        )}
+      </div>
+
+      {err && <p className="mt-2 text-[0.8rem] text-amber-soft">{err.includes('ANTHROPIC_API_KEY') ? 'Imposta ANTHROPIC_API_KEY per attivare l’automazione.' : err}</p>}
+
+      {res && (
+        <div className="mt-3 space-y-3">
+          <div className="flex flex-wrap items-center gap-2 text-[0.74rem]">
+            <span className="rounded-full bg-white/8 px-2 py-0.5 text-mist">{res.automation}</span>
+            <span className="rounded-full bg-white/8 px-2 py-0.5 text-mist">canale: {res.channel}</span>
+            <span className="rounded-full bg-white/8 px-2 py-0.5 text-mist">{res.mode === 'auto' ? 'eseguita' : 'in attesa di approvazione'}</span>
+          </div>
+          {res.summary && <p className="text-[0.84rem] text-bone/90">{res.summary}</p>}
+          <div className="rounded-lg border border-white/10 bg-ink-900/60 p-3">
+            <div className="flex items-center justify-between">
+              <p className="text-[0.66rem] uppercase tracking-wide text-mist/50">Messaggio {res.channel === 'email' ? '(email)' : '(WhatsApp)'}</p>
+              <button
+                onClick={() => {
+                  try {
+                    navigator.clipboard?.writeText(res.channel === 'email' ? `${res.emailSubject}\n\n${res.message}` : res.message);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1500);
+                  } catch {
+                    /* no clipboard */
+                  }
+                }}
+                className="text-[0.72rem] text-teal-200/80 hover:text-teal-200"
+              >
+                {copied ? 'Copiato ✓' : 'Copia'}
+              </button>
+            </div>
+            {res.channel === 'email' && res.emailSubject && <p className="mt-1.5 text-[0.84rem] font-medium text-bone">{res.emailSubject}</p>}
+            <p className="mt-1 whitespace-pre-wrap text-[0.82rem] text-mist">{res.message}</p>
+          </div>
+          {res.appointment && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-ink-900/50 p-3">
+              <p className="text-[0.82rem] text-bone/90">
+                Appuntamento proposto: <span className="font-medium">{res.appointment.title}</span>
+                {res.appointment.whenHint ? ` · ${res.appointment.whenHint}` : ''}
+              </p>
+              <Button size="sm" variant="ghost" onClick={book} disabled={appt === 'done'} className="ml-auto">
+                {appt === 'done' ? 'Aggiunto al calendario ✓' : 'Crea appuntamento'}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Pannello dettaglio CRM del lead: tag, consenso, pausa, automazione, timeline.
+function LeadDetail({ lead }: { lead: Lead }) {
+  const { updateLead } = useStore();
+  const [tick, setTick] = useState(0);
+  return (
+    <div className="mt-4 space-y-4 border-t border-white/8 pt-4">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+        <div>
+          <p className="text-[0.66rem] uppercase tracking-wide text-mist/50">Tag</p>
+          <div className="mt-1.5">
+            <TagRow lead={lead} />
+          </div>
+        </div>
+        <label className="flex cursor-pointer items-center gap-2 text-[0.82rem] text-mist">
+          <input type="checkbox" checked={lead.consent ?? false} onChange={(e) => updateLead(lead.id, { consent: e.target.checked })} className="h-4 w-4 accent-teal-400" />
+          Consenso al contatto
+        </label>
+        <label className="flex cursor-pointer items-center gap-2 text-[0.82rem] text-mist">
+          <input type="checkbox" checked={lead.automationPaused ?? false} onChange={(e) => updateLead(lead.id, { automationPaused: e.target.checked })} className="h-4 w-4 accent-amber-soft" />
+          Automazione in pausa
+        </label>
+      </div>
+
+      {lead.automationPaused ? (
+        <p className="rounded-xl border border-white/10 bg-white/[0.02] p-4 text-[0.82rem] text-mist/70">Automazione in pausa per questo lead. Riattivala per far agire l’AI.</p>
+      ) : (
+        <LeadAutomation lead={lead} onChanged={() => setTick((t) => t + 1)} />
+      )}
+
+      <LeadTimeline key={tick} lead={lead} />
+    </div>
+  );
+}
+
+// Pulsante import lista lead (Excel/CSV) lato browser.
+function ImportLeads() {
+  const { importLeadsFile } = useStore();
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  async function onFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (inputRef.current) inputRef.current.value = '';
+    if (!file) return;
+    setBusy(true);
+    setMsg('');
+    const r = await importLeadsFile(file);
+    setBusy(false);
+    setMsg(r.ok ? `${r.count} contatti importati` : r.error || 'Import non riuscito');
+    setTimeout(() => setMsg(''), 4000);
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv,.tsv" onChange={onFile} className="hidden" />
+      <Button size="sm" variant="outline" onClick={() => inputRef.current?.click()} disabled={busy}>
+        {busy ? <Spinner className="h-4 w-4" /> : 'Importa Excel'}
+      </Button>
+      {msg && <span className="text-[0.74rem] text-teal-200/80">{msg}</span>}
+    </div>
+  );
+}
+
+// Vista pipeline (kanban) per stato.
+function PipelineBoard({ leads }: { leads: Lead[] }) {
+  const { updateLead } = useStore();
+  return (
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      {LeadStatusOrder.map((s) => {
+        const col = leads.filter((l) => l.status === s);
+        return (
+          <div key={s} className="rounded-2xl border border-white/8 bg-ink-900/40 p-2.5">
+            <div className="flex items-center justify-between px-1 pb-2">
+              <span className="text-[0.76rem] font-medium text-bone">{STATUS_META[s].label}</span>
+              <span className="font-mono text-[0.7rem] text-mist/50">{col.length}</span>
+            </div>
+            <div className="space-y-2">
+              {col.map((l) => {
+                const idx = LeadStatusOrder.indexOf(l.status);
+                return (
+                  <div key={l.id} className="rounded-xl border border-white/8 bg-ink/60 p-2.5">
+                    <p className="truncate text-[0.82rem] font-medium text-bone">{l.name}</p>
+                    <p className="truncate text-[0.7rem] text-mist/55">{l.channel} · score {l.score}</p>
+                    <div className="mt-2 flex items-center justify-between">
+                      <button
+                        disabled={idx <= 0}
+                        onClick={() => updateLead(l.id, { status: LeadStatusOrder[idx - 1] })}
+                        className="rounded-md border border-white/10 px-1.5 py-0.5 text-[0.72rem] text-mist disabled:opacity-30 hover:border-teal-300/40 hover:text-teal-200"
+                      >
+                        ←
+                      </button>
+                      {l.automationPaused && <span className="text-[0.62rem] text-amber-soft">pausa</span>}
+                      <button
+                        disabled={idx >= LeadStatusOrder.length - 1}
+                        onClick={() => updateLead(l.id, { status: LeadStatusOrder[idx + 1] })}
+                        className="rounded-md border border-white/10 px-1.5 py-0.5 text-[0.72rem] text-mist disabled:opacity-30 hover:border-teal-300/40 hover:text-teal-200"
+                      >
+                        →
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+              {col.length === 0 && <p className="px-1 py-2 text-[0.72rem] text-mist/40">—</p>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function LeadsView() {
   const { user, updateLead, removeLead, addLead, enrichLead, refreshLeads, consume } = useStore();
   const [filter, setFilter] = useState<LeadStatus | 'tutti'>('tutti');
@@ -169,6 +580,7 @@ function LeadsView() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [errById, setErrById] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState<string | null>(null);
+  const [view, setView] = useState<'table' | 'pipeline'>('table');
 
   const filtered = useMemo(() => {
     if (!user) return [];
@@ -249,7 +661,12 @@ function LeadsView() {
           <h1 className="font-display text-2xl font-semibold tracking-tight text-bone">CRM · Pipeline lead</h1>
           <p className="mt-1 text-[0.9rem] text-mist">Ogni lead acquisito dall&apos;AI atterra qui, pronto da lavorare.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center rounded-full border border-white/10 bg-ink/60 p-0.5 text-[0.74rem]">
+            <button onClick={() => setView('table')} className={cx('rounded-full px-3 py-1 transition', view === 'table' ? 'bg-teal-400 text-ink-900' : 'text-mist hover:text-bone')}>Tabella</button>
+            <button onClick={() => setView('pipeline')} className={cx('rounded-full px-3 py-1 transition', view === 'pipeline' ? 'bg-teal-400 text-ink-900' : 'text-mist hover:text-bone')}>Pipeline</button>
+          </div>
+          <ImportLeads />
           <Button size="sm" variant="outline" onClick={doRefresh} disabled={refreshing}>
             {refreshing ? <Spinner className="h-4 w-4" /> : 'Aggiorna'}
           </Button>
@@ -258,6 +675,8 @@ function LeadsView() {
           </Button>
         </div>
       </div>
+
+      <CrmHeader />
 
       {adding && (
         <div className="grid gap-3 rounded-2xl border border-white/10 bg-ink-900/50 p-4 sm:grid-cols-4">
@@ -283,8 +702,10 @@ function LeadsView() {
         <input placeholder="Cerca…" value={q} onChange={(e) => setQ(e.target.value)} className="w-full rounded-full border border-white/10 bg-ink/70 px-4 py-2 text-[0.84rem] text-bone placeholder:text-mist/40 focus:border-teal-300/60 focus:outline-none sm:w-56" />
       </div>
 
-      {/* tabella */}
-      {filtered.length === 0 ? (
+      {/* lista */}
+      {view === 'pipeline' ? (
+        <PipelineBoard leads={filtered} />
+      ) : filtered.length === 0 ? (
         <div className="rounded-2xl border border-white/8 bg-ink-900/40 p-10 text-center text-mist">Nessun lead in questa vista.</div>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-white/8">
@@ -410,6 +831,7 @@ function LeadsView() {
                           <span>Claude Opus 4.8 analizza il lead e prepara il follow-up.</span>
                         </div>
                       )}
+                      <LeadDetail lead={l} />
                     </td>
                   </tr>
                 )}
@@ -1442,6 +1864,137 @@ function WhatsAppView() {
   );
 }
 
+// ════════════════════════════ CALENDARIO ════════════════════════════
+function CalendarView() {
+  const { user, listAppointments, createAppointment, editAppointment, deleteAppointment } = useStore();
+  const [appts, setAppts] = useState<Appointment[] | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ title: '', when: '', leadId: '', location: '', notes: '' });
+
+  const load = useCallback(async () => {
+    const a = await listAppointments();
+    setAppts(a);
+  }, [listAppointments]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function submit() {
+    if (!form.title.trim() || !form.when) return;
+    setSaving(true);
+    await createAppointment({
+      title: form.title.trim(),
+      startsAt: new Date(form.when).getTime(),
+      leadId: form.leadId || null,
+      location: form.location.trim() || null,
+      notes: form.notes.trim() || null,
+      status: 'confirmed',
+      createdBy: 'admin',
+    });
+    setForm({ title: '', when: '', leadId: '', location: '', notes: '' });
+    setAdding(false);
+    setSaving(false);
+    void load();
+  }
+
+  async function setStatus(a: Appointment, status: ApptStatus) {
+    await editAppointment(a.id, { status });
+    void load();
+  }
+  async function remove(a: Appointment) {
+    await deleteAppointment(a.id);
+    void load();
+  }
+
+  const leadName = (id: string | null) => (id && user ? user.leads.find((l) => l.id === id)?.name : '') || '';
+  const upcoming = (appts ?? []).filter((a) => a.status !== 'cancelled' && a.startsAt >= Date.now() - 36e5);
+  const past = (appts ?? []).filter((a) => a.startsAt < Date.now() - 36e5 || a.status === 'cancelled');
+
+  const Row = ({ a }: { a: Appointment }) => (
+    <div className="flex flex-col gap-2 rounded-2xl border border-white/8 bg-ink-900/40 p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="text-[0.92rem] font-medium text-bone">{a.title}</p>
+          <span className={cx('rounded-full px-2 py-0.5 text-[0.66rem]', a.status === 'confirmed' ? 'bg-teal-400/15 text-teal-200' : a.status === 'proposed' ? 'bg-amber-soft/15 text-amber-soft' : a.status === 'done' ? 'bg-white/10 text-mist' : 'bg-coral/15 text-coral')}>
+            {APPT_STATUS_LABEL[a.status]}
+          </span>
+          {a.createdBy === 'ai' && <span className="rounded-full bg-teal-400/10 px-2 py-0.5 text-[0.62rem] text-teal-200/80">AI</span>}
+        </div>
+        <p className="mt-0.5 text-[0.78rem] text-mist">
+          {fmtDateTime(a.startsAt)}
+          {leadName(a.leadId) ? ` · ${leadName(a.leadId)}` : ''}
+          {a.location ? ` · ${a.location}` : ''}
+        </p>
+        {a.notes && <p className="mt-1 text-[0.78rem] text-mist/70">{a.notes}</p>}
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {a.status !== 'confirmed' && <Button size="sm" variant="ghost" onClick={() => setStatus(a, 'confirmed')}>Conferma</Button>}
+        {a.status !== 'done' && <Button size="sm" variant="ghost" onClick={() => setStatus(a, 'done')}>Concludi</Button>}
+        <button onClick={() => remove(a)} title="Elimina" className="rounded-lg border border-white/10 p-2 text-mist transition hover:border-coral/40 hover:text-coral">
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" /></svg>
+        </button>
+      </div>
+    </div>
+  );
+
+  if (!user) return null;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="font-display text-2xl font-semibold tracking-tight text-bone">Calendario</h1>
+          <p className="mt-1 text-[0.9rem] text-mist">Gli appuntamenti fissati da te o proposti dall&apos;AI per i tuoi lead.</p>
+        </div>
+        <Button size="sm" onClick={() => setAdding((v) => !v)}>{adding ? 'Annulla' : '+ Nuovo appuntamento'}</Button>
+      </div>
+
+      {adding && (
+        <div className="grid gap-3 rounded-2xl border border-white/10 bg-ink-900/50 p-4 sm:grid-cols-2">
+          <input placeholder="Titolo" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className="rounded-xl border border-white/10 bg-ink/70 px-3 py-2.5 text-[0.88rem] text-bone placeholder:text-mist/40 focus:border-teal-300/60 focus:outline-none" />
+          <input type="datetime-local" value={form.when} onChange={(e) => setForm({ ...form, when: e.target.value })} className="rounded-xl border border-white/10 bg-ink/70 px-3 py-2.5 text-[0.88rem] text-bone focus:border-teal-300/60 focus:outline-none" />
+          <select value={form.leadId} onChange={(e) => setForm({ ...form, leadId: e.target.value })} className="rounded-xl border border-white/10 bg-ink/70 px-3 py-2.5 text-[0.88rem] text-bone focus:border-teal-300/60 focus:outline-none">
+            <option value="">Nessun lead collegato</option>
+            {user.leads.map((l) => (
+              <option key={l.id} value={l.id}>{l.name}</option>
+            ))}
+          </select>
+          <input placeholder="Luogo (facoltativo)" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} className="rounded-xl border border-white/10 bg-ink/70 px-3 py-2.5 text-[0.88rem] text-bone placeholder:text-mist/40 focus:border-teal-300/60 focus:outline-none" />
+          <input placeholder="Note (facoltative)" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="rounded-xl border border-white/10 bg-ink/70 px-3 py-2.5 text-[0.88rem] text-bone placeholder:text-mist/40 focus:border-teal-300/60 focus:outline-none sm:col-span-2" />
+          <div className="sm:col-span-2">
+            <Button size="sm" onClick={submit} disabled={saving}>{saving ? <Spinner className="h-4 w-4" /> : 'Salva appuntamento'}</Button>
+          </div>
+        </div>
+      )}
+
+      {appts === null ? (
+        <div className="flex items-center gap-3 rounded-2xl border border-white/8 bg-ink-900/40 p-6 text-[0.85rem] text-mist">
+          <Spinner className="h-4 w-4" /> Carico il calendario…
+        </div>
+      ) : (
+        <>
+          <div>
+            <p className="mb-2 font-mono text-[0.62rem] uppercase tracking-[0.16em] text-mist/60">Prossimi · {upcoming.length}</p>
+            {upcoming.length === 0 ? (
+              <div className="rounded-2xl border border-white/8 bg-ink-900/40 p-8 text-center text-mist">Nessun appuntamento in programma.</div>
+            ) : (
+              <div className="space-y-2.5">{upcoming.map((a) => <Row key={a.id} a={a} />)}</div>
+            )}
+          </div>
+          {past.length > 0 && (
+            <div>
+              <p className="mb-2 font-mono text-[0.62rem] uppercase tracking-[0.16em] text-mist/60">Passati / annullati · {past.length}</p>
+              <div className="space-y-2.5 opacity-70">{past.map((a) => <Row key={a.id} a={a} />)}</div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function DashboardInner() {
   const [tab, setTab] = useState<Tab>('overview');
   const [topUp, setTopUp] = useState<MeterKey | null>(null);
@@ -1466,6 +2019,7 @@ function DashboardInner() {
 
       {tab === 'overview' && <Overview onTopUp={setTopUp} setTab={setTab} />}
       {tab === 'leads' && <LeadsView />}
+      {tab === 'calendario' && <CalendarView />}
       {tab === 'whatsapp' && <WhatsAppView />}
       {tab === 'campaigns' && <CampaignsView setTab={setTab} />}
       {tab === 'social' && <SocialQueueView />}
