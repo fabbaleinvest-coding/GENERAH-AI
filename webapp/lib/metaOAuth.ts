@@ -51,6 +51,9 @@ const SCOPES = [
   'pages_show_list',
   'pages_manage_ads',
   'pages_read_engagement',
+  'pages_manage_posts',
+  'instagram_basic',
+  'instagram_content_publish',
   'business_management',
   'pages_manage_metadata',
 ];
@@ -320,6 +323,33 @@ export async function connectionByPageId(pageId: string): Promise<PageConnection
     return {
       userId: row.user_id as string,
       accessToken: decryptSecret(row.token_cipher as string),
+      pageToken: row.page_token_cipher ? decryptSecret(row.page_token_cipher as string) : undefined,
+      version: graphVersion(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Risolve la MetaConfig completa per uno specifico user_id (server-to-server,
+// service_role). Usata dal cron di pubblicazione social, che non ha la sessione
+// dell'utente. Include il token di pagina (per pubblicare su FB/IG).
+export async function connectionByUserId(userId: string): Promise<MetaConfig | null> {
+  const db = serviceClient();
+  if (!db) return null;
+  try {
+    const { data, error } = await db
+      .from('meta_connections')
+      .select('ad_account_id,page_id,ig_actor_id,token_cipher,page_token_cipher')
+      .eq('user_id', userId)
+      .limit(1);
+    const row = Array.isArray(data) ? data[0] : null;
+    if (error || !row) return null;
+    return {
+      accessToken: decryptSecret(row.token_cipher as string),
+      adAccountId: String(row.ad_account_id).replace(/^act_/, ''),
+      pageId: row.page_id as string,
+      igActorId: (row.ig_actor_id as string) ?? undefined,
       pageToken: row.page_token_cipher ? decryptSecret(row.page_token_cipher as string) : undefined,
       version: graphVersion(),
     };

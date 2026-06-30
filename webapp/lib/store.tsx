@@ -370,7 +370,13 @@ interface StoreCtx {
   connectSocial: (network: 'ig' | 'fb' | 'metricool') => void;
   scheduleSocialPosts: (
     posts: SocialPostDraft[]
-  ) => Promise<{ ok: boolean; remote: boolean; scheduled?: number; error?: string }>;
+  ) => Promise<{
+    ok: boolean;
+    remote: boolean;
+    channel?: 'graph' | 'metricool';
+    scheduled?: number;
+    error?: string;
+  }>;
   generateSocialPlan: () => Promise<{ ok: boolean; posts?: SocialPostDraft[]; error?: string }>;
   generateInfographic: (
     draft: SocialPostDraft
@@ -788,6 +794,36 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }));
     mutateUser((cur) => ({ ...cur, socialPosts: scheduled }));
 
+    // 1) Pubblicazione diretta via Graph (preferita se Meta è collegato): mette
+    //    i post in coda; il cron della webapp li pubblica su FB/IG all'orario.
+    if (u.metaConnected) {
+      try {
+        const token = (await supabase.auth.getSession()).data.session?.access_token;
+        const payload = scheduled.map((p) => ({
+          caption:
+            p.caption && p.caption.trim()
+              ? p.caption
+              : [p.title, ...(p.bullets || [])].filter(Boolean).join('\n'),
+          imageUrl: p.imageUrl || undefined,
+          scheduledAt: new Date(p.scheduledFor).toISOString(),
+          networks: ['facebook', 'instagram'],
+        }));
+        const res = await fetch('/api/social/publish', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({ posts: payload }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (res.ok && d?.configured !== false && d?.ok) {
+          return { ok: true, remote: true, channel: 'graph', scheduled: d?.queued };
+        }
+        // configured:false → Meta non davvero pronto: si prova Metricool sotto.
+      } catch {
+        // errore di rete: si prova Metricool/demo sotto
+      }
+    }
+
+    // 2) Metricool (se collegato).
     if (!u.metricoolConnected) return { ok: true, remote: false };
 
     try {
@@ -808,7 +844,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const d = await res.json().catch(() => ({}));
       if (!res.ok || d?.configured === false) return { ok: true, remote: false, error: d?.error };
       const firstErr = Array.isArray(d?.results) ? d.results.find((r: any) => r?.error)?.error : undefined;
-      return { ok: !!d?.ok, remote: true, scheduled: d?.scheduled, error: d?.ok ? undefined : firstErr || d?.error };
+      return { ok: !!d?.ok, remote: true, channel: 'metricool', scheduled: d?.scheduled, error: d?.ok ? undefined : firstErr || d?.error };
     } catch (e) {
       return { ok: true, remote: false, error: (e as Error).message };
     }

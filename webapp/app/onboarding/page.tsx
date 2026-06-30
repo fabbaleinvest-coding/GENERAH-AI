@@ -272,7 +272,7 @@ function OnboardingInner() {
   const [mcBlogId, setMcBlogId] = useState('');
   const [mcBusy, setMcBusy] = useState(false);
   const [mcErr, setMcErr] = useState('');
-  const [scheduleRemote, setScheduleRemote] = useState<boolean | null>(null);
+  const [scheduleChannel, setScheduleChannel] = useState<'graph' | 'metricool' | null>(null);
   const [scheduleErr, setScheduleErr] = useState('');
   const plan: PlanPost[] = aiPlan ?? socialPlan;
 
@@ -351,7 +351,7 @@ function OnboardingInner() {
       }))
     );
     setSocialScheduling(false);
-    setScheduleRemote(r.remote);
+    setScheduleChannel(r.channel ?? null);
     if (!r.ok) setScheduleErr(r.error || 'Programmazione non riuscita');
     else if (r.remote && r.error) setScheduleErr(r.error);
     setSocialScheduled(true);
@@ -826,7 +826,11 @@ function OnboardingInner() {
                 <div className="mt-5 flex flex-wrap gap-2">
                   <IntegrationTag>Testo: Opus 4.8</IntegrationTag>
                   <IntegrationTag>Infografica: Nano Banana Pro</IntegrationTag>
-                  <IntegrationTag>Programmazione: Metricool</IntegrationTag>
+                  <IntegrationTag>
+                    {user.metaConnected
+                      ? 'Pubblicazione: GENERAH · Graph'
+                      : 'Programmazione: Metricool'}
+                  </IntegrationTag>
                 </div>
 
                 {!socialScheduled ? (
@@ -839,6 +843,8 @@ function OnboardingInner() {
                         <>
                           <Spinner className="h-4 w-4" /> Programmazione…
                         </>
+                      ) : user.metaConnected ? (
+                        'Programma i post (pubblica GENERAH)'
                       ) : user.metricoolConnected ? (
                         'Programma i post su Metricool'
                       ) : (
@@ -852,12 +858,18 @@ function OnboardingInner() {
                       <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 13l4 4L19 7" /></svg>
                     </div>
                     <p className="mt-3 font-display text-xl font-semibold text-bone">
-                      {scheduleRemote ? 'Post programmati su Metricool!' : 'Piano pronto!'}
+                      {scheduleChannel === 'graph'
+                        ? 'Post in coda di pubblicazione!'
+                        : scheduleChannel === 'metricool'
+                        ? 'Post programmati su Metricool!'
+                        : 'Piano pronto!'}
                     </p>
                     <p className="mt-1.5 text-[0.9rem] text-mist">
-                      {scheduleRemote
+                      {scheduleChannel === 'graph'
+                        ? 'Un post a settimana è in coda: GENERAH AI lo pubblica da solo su Facebook e Instagram all\u2019orario previsto.'
+                        : scheduleChannel === 'metricool'
                         ? 'Un post a settimana è in coda su Metricool. Da qui in poi GENERAH AI pubblica da solo.'
-                        : 'Il piano è pronto. Collega Metricool per metterlo davvero in coda di pubblicazione.'}
+                        : 'Il piano è pronto. Collega Meta (o Metricool) per metterlo davvero in coda di pubblicazione.'}
                     </p>
                     {scheduleErr && <p className="mt-2 text-[0.82rem] text-coral">{scheduleErr}</p>}
                     <Button className="mt-5" onClick={() => setStep('meta')}>

@@ -239,3 +239,33 @@ Note: le immagini passano per l'endpoint `normalize` di Metricool (così sono os
 e non scadono); `publicationDate` usa la timezone `Europe/Rome` (override
 `METRICOOL_TIMEZONE`). Senza connessione Metricool la programmazione resta una bozza
 locale dimostrativa.
+
+### Pubblicazione organica diretta (Facebook/Instagram via Graph)
+
+Alternativa a Metricool, **dentro la webapp**: riusa la connessione Meta dell'admin
+(lo stesso OAuth delle campagne) per pubblicare i post sulla sua Pagina Facebook e
+sull'account Instagram business collegato, senza account/terze parti.
+
+Flusso: i post programmati entrano in coda (`social_posts_queue`) tramite
+`/api/social/publish`; un cron (`/api/social/cron`) li pubblica all'orario previsto
+— Facebook via `/{page}/feed`|`/photos`, Instagram in due passi
+(`/{ig}/media` → `/{ig}/media_publish`). Instagram non ha scheduling nativo lato
+server: ci pensa il cron. Se Meta è collegato la webapp usa questo canale; altrimenti
+ricade su Metricool e infine su demo.
+
+Setup:
+1. Esegui `supabase/migrations/0005_social_posts_queue.sql`.
+2. Env: `CRON_SECRET` (protegge il cron), `SUPABASE_SERVICE_ROLE_KEY` (il cron scrive
+   lato server). `META_GRAPH_VERSION` opzionale.
+3. Cron: `vercel.json` pianifica `/api/social/cron` ogni 15 min. **Su Vercel Hobby i
+   cron sono limitati**: in tal caso usa un cron esterno (es. cron-job.org) che chiama
+   `https://<dominio>/api/social/cron` con header `Authorization: Bearer <CRON_SECRET>`
+   (o `?key=<CRON_SECRET>`).
+4. Permessi Meta: la pubblicazione richiede gli scope `pages_manage_posts`,
+   `instagram_basic`, `instagram_content_publish` (aggiunti all'OAuth). Gli admin già
+   collegati devono **ricollegare** Meta per concederli, e serve l'**app review** Meta
+   per questi permessi (come per Ads/Lead).
+
+Note: le immagini (infografiche Nano Banana Pro) devono essere a URL pubblico
+(quelle Higgsfield lo sono). La pubblicazione è "una volta sola" per post: in caso di
+errore non si ritenta in automatico, per evitare doppie pubblicazioni.

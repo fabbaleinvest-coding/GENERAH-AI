@@ -659,3 +659,103 @@ export async function publishLeadCampaign(
 
   return { campaignId, adSetId, adId, creativeId, leadFormId, videoId, status };
 }
+
+// ── Pubblicazione organica (Graph diretto) ──────────────────────────────────
+//  Riusa la connessione Meta dell'utente (token di pagina + account IG) per
+//  pubblicare post organici su Facebook e Instagram, senza terze parti.
+//  Lo scheduling è gestito dalla coda + cron della webapp (IG non ha scheduling
+//  nativo lato server).
+
+export interface OrganicPost {
+  caption: string;
+  imageUrl?: string;
+}
+
+export interface PublishOneResult {
+  network: string;
+  ok: boolean;
+  id?: string;
+  error?: string;
+}
+
+// Facebook: con immagine usa /photos (foto + didascalia nel feed), altrimenti
+// /feed (solo testo). Richiede il token della pagina.
+async function publishFacebook(cfg: MetaConfig, post: OrganicPost): Promise<string> {
+  const token = cfg.pageToken;
+  if (!token) throw new MetaError('Token della pagina Facebook mancante');
+  if (post.imageUrl) {
+    const r = await graph<{ id?: string; post_id?: string }>(`${cfg.pageId}/photos`, {
+      method: 'POST',
+      token,
+      params: { url: post.imageUrl, caption: post.caption, published: true },
+      version: cfg.version,
+    });
+    return r.post_id || r.id || '';
+  }
+  const r = await graph<{ id: string }>(`${cfg.pageId}/feed`, {
+    method: 'POST',
+    token,
+    params: { message: post.caption, published: true },
+    version: cfg.version,
+  });
+  return r.id;
+}
+
+// Instagram (account business/creator collegato alla pagina): due passi —
+// crea il container con l'immagine, attende che sia pronto, poi pubblica.
+async function publishInstagram(cfg: MetaConfig, post: OrganicPost): Promise<string> {
+  const token = cfg.pageToken;
+  if (!token) throw new MetaError('Token della pagina Facebook mancante');
+  if (!cfg.igActorId) throw new MetaError('Nessun account Instagram business collegato alla pagina');
+  if (!post.imageUrl) throw new MetaError('Instagram richiede un\'immagine');
+
+  const created = await graph<{ id: string }>(`${cfg.igActorId}/media`, {
+    method: 'POST',
+    token,
+    params: { image_url: post.imageUrl, caption: post.caption },
+    version: cfg.version,
+  });
+  const creationId = created.id;
+
+  // Attende che il container sia FINISHED (cap ~25s).
+  const deadline = Date.now() + 25_000;
+  while (Date.now() < deadline) {
+    const s = await graph<{ status_code?: string }>(`${creationId}`, {
+      token,
+      params: { fields: 'status_code' },
+      version: cfg.version,
+    });
+    if (s.status_code === 'FINISHED') break;
+    if (s.status_code === 'ERROR') throw new MetaError('Elaborazione del media Instagram fallita');
+    await sleep(2500);
+  }
+
+  const published = await graph<{ id: string }>(`${cfg.igActorId}/media_publish`, {
+    method: 'POST',
+    token,
+    params: { creation_id: creationId },
+    version: cfg.version,
+  });
+  return published.id;
+}
+
+// Pubblica su tutte le reti richieste; ogni rete è isolata (l'errore di una non
+// blocca le altre).
+export async function publishOrganic(
+  cfg: MetaConfig,
+  post: OrganicPost,
+  networks: string[]
+): Promise<PublishOneResult[]> {
+  const out: PublishOneResult[] = [];
+  for (const raw of networks) {
+    const n = raw.toLowerCase();
+    try {
+      if (n === 'facebook') out.push({ network: n, ok: true, id: await publishFacebook(cfg, post) });
+      else if (n === 'instagram') out.push({ network: n, ok: true, id: await publishInstagram(cfg, post) });
+      else out.push({ network: n, ok: false, error: 'Rete non supportata dalla pubblicazione diretta' });
+    } catch (e) {
+      out.push({ network: n, ok: false, error: e instanceof Error ? e.message : 'Errore di pubblicazione' });
+    }
+  }
+  return out;
+}
