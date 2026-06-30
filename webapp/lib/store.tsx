@@ -374,7 +374,11 @@ interface StoreCtx {
   skipPhase2: () => void;
   useVideoConsult: () => void;
   finishOnboarding: () => void;
-  launchCampaign: (c: Omit<Campaign, 'id' | 'createdAt' | 'leads' | 'spend' | 'status'>) => void;
+  launchCampaign: (
+    c: Omit<Campaign, 'id' | 'createdAt' | 'leads' | 'spend' | 'status'>,
+    opts?: { demoLeads?: boolean }
+  ) => void;
+  refreshLeads: () => Promise<void>;
   generateCampaignBrief: (input?: {
     objective?: string;
     budgetDaily?: number;
@@ -906,12 +910,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const useVideoConsult = () => mutateUser((u) => ({ ...u, videoConsultUsed: true }));
   const finishOnboarding = () => mutateUser((u) => ({ ...u, onboardingDone: true }));
 
-  const launchCampaign: StoreCtx['launchCampaign'] = (c) => {
+  const launchCampaign: StoreCtx['launchCampaign'] = (c, opts) => {
     const u = userRef.current;
     if (!u) return;
-    const seedLeads = Array.from({ length: Math.floor(3 + Math.random() * 4) }, () =>
-      makeLead(c.name, 'Meta Ads')
-    );
+    // Su una campagna Meta reale i lead arrivano dal webhook: niente seed finti.
+    // In modalità demo si popolano alcuni lead di esempio per il CRM.
+    const demoLeads = opts?.demoLeads !== false;
+    const seedLeads = demoLeads
+      ? Array.from({ length: Math.floor(3 + Math.random() * 4) }, () => makeLead(c.name, 'Meta Ads'))
+      : [];
     if (seedLeads.length) {
       void supabase.from('leads').insert(seedLeads.map((l) => leadToRow(u.id, l)));
     }
@@ -1025,6 +1032,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!u) return;
     setUser((prev) => (prev ? { ...prev, leads: prev.leads.filter((l) => l.id !== id) } : prev));
     void supabase.from('leads').delete().eq('id', id).eq('user_id', u.id);
+  };
+
+  // Ricarica i lead dalla tabella (es. per far comparire quelli arrivati dal
+  // webhook Lead Ads). I lead dal DB sono autorevoli; eventuali lead locali non
+  // ancora persistiti vengono preservati.
+  const refreshLeads: StoreCtx['refreshLeads'] = async () => {
+    const u = userRef.current;
+    if (!u) return;
+    const fresh = await loadLeads(u.id);
+    setUser((prev) => {
+      if (!prev) return prev;
+      const byId = new Map(fresh.map((l) => [l.id, l]));
+      for (const l of prev.leads) if (!byId.has(l.id)) byId.set(l.id, l);
+      const merged = Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt);
+      return { ...prev, leads: merged };
+    });
   };
 
   const generateCampaignBrief: StoreCtx['generateCampaignBrief'] = async (input) => {
@@ -1242,6 +1265,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     updateLead,
     enrichLead,
     removeLead,
+    refreshLeads,
     markAlertsRead,
     resetAll,
   };

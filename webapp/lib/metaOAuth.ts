@@ -18,8 +18,12 @@
 // ─────────────────────────────────────────────────────────────────────────
 
 import crypto from 'crypto';
-import { userClient } from '@/lib/supabaseServer';
-import { metaConfig as metaEnvConfig, type MetaConfig } from '@/lib/meta';
+import { userClient, serviceClient } from '@/lib/supabaseServer';
+import {
+  metaConfig as metaEnvConfig,
+  subscribePageToLeadgen,
+  type MetaConfig,
+} from '@/lib/meta';
 
 const GRAPH = 'https://graph.facebook.com';
 
@@ -291,6 +295,39 @@ export async function disconnect(userToken: string): Promise<void> {
   await userClient(userToken).from('meta_connections').delete().eq('user_id', id);
 }
 
+export interface PageConnection {
+  userId: string;
+  pageToken?: string;
+  accessToken: string;
+  version: string;
+}
+
+// Lookup per page_id (server-to-server, service_role): individua l'utente
+// proprietario della pagina Meta e restituisce i token decifrati, così il
+// webhook Lead Ads può leggere i dati del lead e salvarlo per quell'utente.
+// Null se la service_role non è configurata o la pagina non è collegata.
+export async function connectionByPageId(pageId: string): Promise<PageConnection | null> {
+  const db = serviceClient();
+  if (!db) return null;
+  try {
+    const { data, error } = await db
+      .from('meta_connections')
+      .select('user_id,token_cipher,page_token_cipher')
+      .eq('page_id', pageId)
+      .limit(1);
+    const row = Array.isArray(data) ? data[0] : null;
+    if (error || !row) return null;
+    return {
+      userId: row.user_id as string,
+      accessToken: decryptSecret(row.token_cipher as string),
+      pageToken: row.page_token_cipher ? decryptSecret(row.page_token_cipher as string) : undefined,
+      version: graphVersion(),
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Risolve la MetaConfig da usare per le chiamate ads: prima la connessione
 // per-utente (decifrata), poi il fallback via env. Null se nessuna delle due.
 export async function resolveMetaConfig(userToken: string): Promise<MetaConfig | null> {
@@ -340,6 +377,14 @@ export async function completeOAuth(
     scopes: SCOPES.join(','),
     expiresIn,
   });
+
+  // Iscrive la pagina agli eventi `leadgen` così il webhook riceve i lead della
+  // campagna. Non bloccante: se fallisce, l'admin può attivarlo da Meta.
+  try {
+    await subscribePageToLeadgen(page.accessToken, page.id, graphVersion());
+  } catch {
+    // ignorato di proposito
+  }
 
   return {
     connected: true,

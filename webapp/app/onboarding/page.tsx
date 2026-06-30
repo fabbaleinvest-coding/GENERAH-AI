@@ -449,7 +449,7 @@ function OnboardingInner() {
       videoConcept: effConcept,
       lookalike: contacts >= 100,
       brief: aiBrief ?? undefined,
-    });
+    }, { demoLeads: !meta?.ok });
     setRunning(false);
     setLaunched(true);
   }

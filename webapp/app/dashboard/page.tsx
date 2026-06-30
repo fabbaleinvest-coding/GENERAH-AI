@@ -16,7 +16,7 @@ import { Guard } from '@/components/Guard';
 import { AppShell } from '@/components/AppShell';
 import { MeterBar } from '@/components/Meters';
 import { TopUpModal } from '@/components/TopUpModal';
-import { Container, Button, Badge, Photo, cx } from '@/components/ui';
+import { Container, Button, Badge, Photo, Spinner, cx } from '@/components/ui';
 import VideoConsult from '@/components/VideoConsult';
 import { IMG } from '@/lib/images';
 
@@ -153,10 +153,11 @@ function Overview({ onTopUp, setTab }: { onTopUp: (m: MeterKey) => void; setTab:
 
 // ════════════════════════════ LEADS / CRM ════════════════════════════
 function LeadsView() {
-  const { user, updateLead, removeLead, addLead, enrichLead, consume } = useStore();
+  const { user, updateLead, removeLead, addLead, enrichLead, refreshLeads, consume } = useStore();
   const [filter, setFilter] = useState<LeadStatus | 'tutti'>('tutti');
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [form, setForm] = useState({ name: '', phone: '', email: '', interest: 'Informazioni' });
   const [openId, setOpenId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -229,6 +230,12 @@ function LeadsView() {
 
   const counts = (s: LeadStatus) => user.leads.filter((l) => l.status === s).length;
 
+  async function doRefresh() {
+    setRefreshing(true);
+    await refreshLeads();
+    setRefreshing(false);
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -236,9 +243,14 @@ function LeadsView() {
           <h1 className="font-display text-2xl font-semibold tracking-tight text-bone">CRM · Pipeline lead</h1>
           <p className="mt-1 text-[0.9rem] text-mist">Ogni lead acquisito dall&apos;AI atterra qui, pronto da lavorare.</p>
         </div>
-        <Button size="sm" onClick={() => setAdding((v) => !v)}>
-          {adding ? 'Annulla' : '+ Aggiungi lead'}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={doRefresh} disabled={refreshing}>
+            {refreshing ? <Spinner className="h-4 w-4" /> : 'Aggiorna'}
+          </Button>
+          <Button size="sm" onClick={() => setAdding((v) => !v)}>
+            {adding ? 'Annulla' : '+ Aggiungi lead'}
+          </Button>
+        </div>
       </div>
 
       {adding && (

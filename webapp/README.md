@@ -186,3 +186,27 @@ Gestione Inserzioni (Audiences → crea una custom audience) — altrimenti l'AP
 risponde con errore. Il lookalike richiede un seed con abbastanza utenti
 corrisposti (idealmente 100+); con liste piccole Meta può rifiutarlo o tenerlo
 in elaborazione: in tal caso la campagna parte comunque, senza il lookalike.
+
+### Lead Ads: i lead reali nel CRM (webhook)
+
+I lead compilati nel modulo della campagna entrano nel CRM tramite il webhook
+Meta Lead Ads, al posto dei lead demo (che ora si generano solo in modalità
+dimostrativa, non sulle campagne Meta reali).
+
+Flusso: Meta invia l'evento `leadgen` (solo ID) a un'unica callback →
+`/api/meta/leads/webhook`. Da `page_id` si risale all'utente proprietario della
+pagina (tabella `meta_connections`, lettura con service_role), con il suo token
+si leggono i dati del lead e si salva nella sua tabella `leads`. La firma
+`X-Hub-Signature-256` è verificata con l'app secret; l'inserimento è idempotente.
+
+Setup:
+1. Esegui `supabase/migrations/0003_leads.sql` (crea la tabella `leads` con RLS).
+2. Env su Vercel: `SUPABASE_SERVICE_ROLE_KEY` (scrittura lead lato server),
+   `META_WEBHOOK_VERIFY_TOKEN` (una stringa a tua scelta), `META_APP_SECRET`
+   (già usato per l'OAuth).
+3. Nell'App Dashboard di Meta → Webhooks → oggetto **Page**: imposta la Callback
+   URL `https://<dominio>/api/meta/leads/webhook`, il Verify Token uguale a
+   `META_WEBHOOK_VERIFY_TOKEN`, e sottoscrivi il campo `leadgen`.
+
+La singola pagina viene iscritta automaticamente agli eventi `leadgen` al momento
+del collegamento OAuth. Nel CRM il pulsante **Aggiorna** ricarica i lead arrivati.

@@ -489,6 +489,70 @@ export async function buildLookalikeAudience(
   return { customAudienceId, lookalikeId, received, note };
 }
 
+// ── Lead Ads (webhook) ──────────────────────────────────────────────────────
+
+// Iscrive la PAGINA agli aggiornamenti `leadgen`: senza questo, anche con il
+// webhook configurato nell'app, Meta non recapita i lead della pagina. Best-effort
+// (richiede il page token con pages_manage_metadata).
+export async function subscribePageToLeadgen(
+  pageToken: string,
+  pageId: string,
+  version?: string
+): Promise<void> {
+  await graph(`${pageId}/subscribed_apps`, {
+    method: 'POST',
+    token: pageToken,
+    params: { subscribed_fields: 'leadgen' },
+    version,
+  });
+}
+
+export interface FetchedLead {
+  id: string;
+  createdTime?: string;
+  adId?: string;
+  formId?: string;
+  campaignId?: string;
+  campaignName?: string;
+  fields: Record<string, string>;
+}
+
+// Il webhook recapita solo gli ID: i dati del lead si leggono qui, con il token
+// della pagina. `field_data` è una lista di { name, values }.
+export async function fetchLeadData(
+  token: string,
+  leadgenId: string,
+  version?: string
+): Promise<FetchedLead> {
+  const r = await graph<{
+    id: string;
+    created_time?: string;
+    ad_id?: string;
+    form_id?: string;
+    campaign_id?: string;
+    campaign_name?: string;
+    field_data?: { name: string; values: string[] }[];
+  }>(leadgenId, {
+    method: 'GET',
+    token,
+    params: { fields: 'id,created_time,ad_id,form_id,campaign_id,campaign_name,field_data' },
+    version,
+  });
+  const fields: Record<string, string> = {};
+  for (const f of r.field_data || []) {
+    if (f?.name) fields[f.name.toLowerCase()] = Array.isArray(f.values) ? f.values.join(' ').trim() : '';
+  }
+  return {
+    id: r.id,
+    createdTime: r.created_time,
+    adId: r.ad_id,
+    formId: r.form_id,
+    campaignId: r.campaign_id,
+    campaignName: r.campaign_name,
+    fields,
+  };
+}
+
 // ── Orchestratore: brief → campagna lead pubblicata ─────────────────────────
 
 export interface PublishBrief {

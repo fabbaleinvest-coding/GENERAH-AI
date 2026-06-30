@@ -17,3 +17,16 @@ export function userClient(accessToken: string): SupabaseClient {
     global: { headers: { Authorization: `Bearer ${accessToken}` } },
   });
 }
+
+// Client con service_role: bypassa la RLS. Usato SOLO da processi server-to-server
+// senza sessione utente (es. il webhook Lead Ads di Meta, che deve scrivere il
+// lead per l'utente proprietario della pagina, individuato dal page_id).
+// La chiave NON è pubblica: vive solo in SUPABASE_SERVICE_ROLE_KEY (env server).
+// Se assente, la funzione restituisce null e il chiamante degrada con grazia.
+export function serviceClient(): SupabaseClient | null {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) return null;
+  return createClient(SUPABASE_URL, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
