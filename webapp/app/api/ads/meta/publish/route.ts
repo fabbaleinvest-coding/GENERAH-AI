@@ -1,12 +1,7 @@
 import { NextResponse } from 'next/server';
 import { userClient } from '@/lib/supabaseServer';
-import {
-  metaConfigured,
-  metaConfig,
-  publishLeadCampaign,
-  MetaError,
-  type PublishBrief,
-} from '@/lib/meta';
+import { publishLeadCampaign, MetaError, type PublishBrief } from '@/lib/meta';
+import { resolveMetaConfig } from '@/lib/metaOAuth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -45,10 +40,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Sessione non valida' }, { status: 401 });
   }
 
-  if (!metaConfigured()) {
-    return NextResponse.json({ ok: false, configured: false, reason: 'meta_not_configured' });
-  }
-
   let body: Body;
   try {
     body = (await req.json()) as Body;
@@ -63,7 +54,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, configured: true, reason: 'no_video' });
   }
 
-  const cfg = metaConfig();
+  // Config: prima la connessione OAuth dell'utente, poi il fallback via env.
+  const cfg = await resolveMetaConfig(token);
   if (!cfg) {
     return NextResponse.json({ ok: false, configured: false, reason: 'meta_not_configured' });
   }

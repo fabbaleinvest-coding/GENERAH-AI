@@ -369,7 +369,7 @@ interface StoreCtx {
   scheduleSocialPosts: (posts: SocialPostDraft[]) => void;
   generateSocialPlan: () => Promise<{ ok: boolean; posts?: SocialPostDraft[]; error?: string }>;
   skipSocial: () => void;
-  connectMeta: () => void;
+  connectMeta: () => Promise<{ ok: boolean; error?: string }>;
   skipPhase2: () => void;
   useVideoConsult: () => void;
   finishOnboarding: () => void;
@@ -768,7 +768,69 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
 
   const skipSocial = () => mutateUser((u) => ({ ...u, socialSkipped: true }));
-  const connectMeta = () => mutateUser((u) => ({ ...u, metaConnected: true }));
+  // Collega l'account Meta dell'utente via OAuth: chiede l'URL del dialog,
+  // apre il popup, riceve il `code` (postMessage) e lo scambia lato server.
+  const connectMeta: StoreCtx['connectMeta'] = async () => {
+    try {
+      const token = (await supabase.auth.getSession()).data.session?.access_token;
+      if (!token) return { ok: false, error: 'Sessione non disponibile' };
+      const s = await fetch('/api/meta/oauth/start', { headers: { Authorization: `Bearer ${token}` } });
+      const sd = await s.json().catch(() => ({}));
+      if (!s.ok) return { ok: false, error: String(sd?.error || `HTTP ${s.status}`) };
+      if (sd?.configured === false || !sd?.url) return { ok: false, error: 'meta_app_not_configured' };
+
+      const got = await new Promise<{ code: string; state: string } | null>((resolve) => {
+        const w = 600;
+        const h = 740;
+        const left = window.screenX + Math.max(0, (window.outerWidth - w) / 2);
+        const top = window.screenY + Math.max(0, (window.outerHeight - h) / 2);
+        const popup = window.open(sd.url, 'generah-meta-oauth', `width=${w},height=${h},left=${left},top=${top}`);
+        if (!popup) {
+          resolve(null);
+          return;
+        }
+        let done = false;
+        const cleanup = () => {
+          clearInterval(timer);
+          window.removeEventListener('message', onMsg);
+        };
+        const onMsg = (ev: MessageEvent) => {
+          if (ev.origin !== window.location.origin) return;
+          const d = ev.data as { source?: string; code?: string; state?: string; error?: string };
+          if (!d || d.source !== 'generah-meta-oauth') return;
+          done = true;
+          cleanup();
+          if (d.error || !d.code) {
+            resolve(null);
+            return;
+          }
+          resolve({ code: d.code, state: d.state || '' });
+        };
+        const timer = setInterval(() => {
+          if (popup.closed && !done) {
+            cleanup();
+            resolve(null);
+          }
+        }, 600);
+        window.addEventListener('message', onMsg);
+      });
+      if (!got) return { ok: false, error: 'Connessione annullata' };
+
+      const ex = await fetch('/api/meta/oauth/exchange', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ code: got.code, state: got.state }),
+      });
+      const exd = await ex.json().catch(() => ({}));
+      if (!ex.ok || !exd?.ok) {
+        return { ok: false, error: String(exd?.error || exd?.reason || `HTTP ${ex.status}`) };
+      }
+      mutateUser((u) => ({ ...u, metaConnected: true }));
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  };
   const skipPhase2 = () => mutateUser((u) => ({ ...u, phase2Skipped: true }));
   const useVideoConsult = () => mutateUser((u) => ({ ...u, videoConsultUsed: true }));
   const finishOnboarding = () => mutateUser((u) => ({ ...u, onboardingDone: true }));

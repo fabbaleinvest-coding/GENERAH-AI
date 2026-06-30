@@ -278,6 +278,8 @@ function OnboardingInner() {
   const [contacts, setContacts] = useState<number>(0);
   const [launched, setLaunched] = useState(false);
   const [metaResult, setMetaResult] = useState<{ ok: boolean; configured: boolean; reason?: string; ids?: { campaignId: string }; error?: string } | null>(null);
+  const [metaBusy, setMetaBusy] = useState(false);
+  const [metaErr, setMetaErr] = useState('');
   const [consultDone, setConsultDone] = useState(false);
 
   if (!user) return null;
@@ -709,13 +711,36 @@ function OnboardingInner() {
               {user.metaConnected ? (
                 <Badge tone="teal">Collegato</Badge>
               ) : (
-                <Button size="sm" onClick={connectMeta}>
-                  Connetti account
+                <Button
+                  size="sm"
+                  disabled={metaBusy}
+                  onClick={async () => {
+                    setMetaErr('');
+                    setMetaBusy(true);
+                    const r = await connectMeta();
+                    setMetaBusy(false);
+                    if (!r.ok) {
+                      setMetaErr(
+                        r.error === 'meta_app_not_configured'
+                          ? 'App Meta non ancora configurata (manca META_APP_ID/SECRET lato server).'
+                          : r.error || 'Connessione non riuscita.'
+                      );
+                    }
+                  }}
+                >
+                  {metaBusy ? (
+                    <>
+                      <Spinner className="h-4 w-4" /> Connessione…
+                    </>
+                  ) : (
+                    'Connetti account'
+                  )}
                 </Button>
               )}
             </div>
+            {metaErr && <p className="mt-3 text-[0.82rem] text-coral">{metaErr}</p>}
             <p className="mt-3 font-mono text-[0.62rem] uppercase tracking-[0.12em] text-mist/45">
-              Punto di integrazione · in demo la connessione è simulata
+              OAuth Meta · collega il tuo account reale (richiede l app Meta configurata)
             </p>
           </div>
 

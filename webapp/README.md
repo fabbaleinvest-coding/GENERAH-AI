@@ -125,3 +125,39 @@ La vetrina resta invariata sul suo progetto Vercel (root del repo).
 - I pagamenti (PayPal) e le integrazioni AI live saranno aggiunti in una fase successiva.
 
 © GENERAH IT — *Sales never sleep.*
+
+## Integrazione Meta Ads (OAuth per-utente)
+
+Pipeline reale di pubblicazione campagne lead-gen su Meta (Facebook/Instagram).
+
+**Connessione per-utente (OAuth).** Ogni admin collega il proprio account Meta dal
+passo "Campagne Meta" dell'onboarding. Il flusso usa un popup: la callback rimanda
+il `code` all'app via `postMessage` e lo scambio token avviene lato server
+(`/api/meta/oauth/exchange`). I token (utente long-lived + pagina) vengono cifrati
+(AES-256-GCM) e salvati in `meta_connections` (RLS per-utente). In assenza di
+connessione, le chiamate ricadono sulla configurazione via env.
+
+**Prerequisiti (lato Meta, una tantum):**
+
+1. Creare una **Meta App** (tipo Business) con Facebook Login e i permessi:
+   `ads_management`, `ads_read`, `leads_retrieval`, `pages_show_list`,
+   `pages_manage_ads`, `pages_read_engagement`, `business_management`,
+   `pages_manage_metadata`. Per l'uso con account di terzi serve l'App Review;
+   in modalità sviluppo funziona già con l'account del team dell'app.
+2. In *Facebook Login → Settings*, aggiungere come **Valid OAuth Redirect URI**:
+   `https://<dominio>/api/meta/oauth/callback`
+   (es. `https://generah-ai-jeyv.vercel.app/api/meta/oauth/callback`).
+3. Eseguire la migrazione `supabase/migrations/0001_meta_connections.sql` nel SQL
+   editor di Supabase.
+
+**Variabili d'ambiente (Vercel):**
+
+- `META_APP_ID`, `META_APP_SECRET` — credenziali della Meta App (obbligatorie per OAuth).
+- `META_OAUTH_REDIRECT` — opzionale; forza l'URI di callback (altrimenti dedotto dall'host).
+- `META_TOKEN_SECRET` — opzionale; chiave di cifratura dei token (default: derivata da `META_APP_SECRET`).
+- `META_GRAPH_VERSION` — opzionale; versione Graph API (default `v23.0`).
+- `META_ACCESS_TOKEN`, `META_AD_ACCOUNT_ID`, `META_PAGE_ID` — fallback "single account"
+  via env (opzionali: `META_PAGE_ACCESS_TOKEN`, `META_IG_ACTOR_ID`); usati solo se
+  l'utente non ha una connessione OAuth.
+
+Le campagne vengono create in **PAUSA**: rivedi in Gestione Inserzioni prima di attivare.
