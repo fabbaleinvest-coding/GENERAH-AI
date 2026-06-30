@@ -454,6 +454,18 @@ function SocialQueueView() {
     setItems(r);
   }, [fetchSocialQueue]);
 
+  const counts = useMemo(() => {
+    const c = { total: 0, programmati: 0, pubblicati: 0, parziali: 0, errori: 0 };
+    for (const p of items ?? []) {
+      c.total++;
+      if (p.status === 'pending' || p.status === 'publishing') c.programmati++;
+      else if (p.status === 'published') c.pubblicati++;
+      else if (p.status === 'partial') c.parziali++;
+      else if (p.status === 'failed') c.errori++;
+    }
+    return c;
+  }, [items]);
+
   useEffect(() => {
     void load();
   }, [load]);
@@ -485,6 +497,16 @@ function SocialQueueView() {
           {refreshing ? <Spinner className="h-4 w-4" /> : 'Aggiorna'}
         </Button>
       </div>
+
+      {items && items.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone="muted">{counts.total} totali</Badge>
+          <Badge tone="amber">{counts.programmati} programmati</Badge>
+          <Badge tone="teal">{counts.pubblicati} pubblicati</Badge>
+          {counts.parziali > 0 && <Badge tone="coral">{counts.parziali} parziali</Badge>}
+          {counts.errori > 0 && <Badge tone="coral">{counts.errori} errori</Badge>}
+        </div>
+      )}
 
       {items === null ? (
         <div className="flex items-center gap-3 py-12 text-mist">
