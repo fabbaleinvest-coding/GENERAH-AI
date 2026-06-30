@@ -1151,7 +1151,7 @@ function waClock(ms: number): string {
 const WA_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function WhatsAppView() {
-  const { user, fetchWaMessages, sendWhatsApp, draftWhatsApp } = useStore();
+  const { user, fetchWaMessages, sendWhatsApp, draftWhatsApp, setWaAutoreply } = useStore();
   const [messages, setMessages] = useState<WaMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
@@ -1279,9 +1279,29 @@ function WhatsAppView() {
             )}
           </p>
         </div>
-        <Button size="sm" variant="outline" onClick={() => load()}>
-          Aggiorna
-        </Button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setWaAutoreply(!user?.waAutoreply)}
+            className={cx(
+              'flex items-center gap-2 rounded-full border px-3 py-1.5 text-[0.76rem] font-medium transition',
+              user?.waAutoreply
+                ? 'border-teal-300/40 bg-teal-400/10 text-teal-200'
+                : 'border-white/15 bg-white/[0.03] text-mist hover:text-bone',
+            )}
+            title="Risposte automatiche AI ai messaggi in arrivo (entro 24h, basate sulla knowledge base)"
+          >
+            <span
+              className={cx(
+                'inline-block h-2 w-2 rounded-full',
+                user?.waAutoreply ? 'bg-teal-300' : 'bg-mist/50',
+              )}
+            />
+            Auto-reply AI · {user?.waAutoreply ? 'ON' : 'OFF'}
+          </button>
+          <Button size="sm" variant="outline" onClick={() => load()}>
+            Aggiorna
+          </Button>
+        </div>
       </div>
 
       {notice && (

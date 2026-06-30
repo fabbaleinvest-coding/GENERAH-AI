@@ -490,3 +490,29 @@ l'utente può rivedere prima di inviare. Store: `fetchWaMessages`, `sendWhatsApp
 Nota: la UI mostra i messaggi già registrati; l'auto-reply AI automatico (senza
 revisione umana) è un passo successivo, costruibile sopra `/api/whatsapp/draft` +
 un trigger sul webhook in entrata.
+
+### Auto-reply WhatsApp (Opus 4.8 + RAG)
+
+Quando arriva un messaggio del cliente, il webhook `/api/whatsapp/webhook`
+genera e invia automaticamente la risposta con Claude Opus 4.8, ancorata alla
+knowledge base dell'azienda (RAG service-role `match_kb_chunks_for`), **entro la
+finestra 24h** (testo libero: gratuito, nessun consumo del meter `whatsapp`).
+
+Caratteristiche:
+
+- **Idempotente**: l'auto-reply scatta solo quando il messaggio in entrata è
+  appena stato inserito (`.select()` sull'upsert) → niente doppie risposte sui
+  retry di Meta.
+- **Solo testo**: i messaggi non testuali non innescano l'auto-reply.
+- **Interruttore per-utente** `profiles.wa_autoreply` (default ON, migrazione
+  0011), commutabile dal tab WhatsApp ("Auto-reply AI · ON/OFF").
+- **Best-effort**: ogni errore (chiave AI mancante, timeout 12s, invio fallito)
+  è silenzioso e il webhook risponde comunque 200.
+- Generatore condiviso `lib/waReply.ts` (`generateWaReply`), usato sia
+  dall'auto-reply sia dalla Bozza AI manuale del composer.
+
+Le risposte automatiche vengono registrate in `wa_messages` con `status='auto'`
+e compaiono nel thread del tab WhatsApp come messaggi in uscita.
+
+Env: `ANTHROPIC_API_KEY` (+ `ANTHROPIC_MODEL` opzionale), `WHATSAPP_TOKEN`,
+`SUPABASE_SERVICE_ROLE_KEY`. Senza una di queste, l'auto-reply resta inattivo.

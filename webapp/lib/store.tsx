@@ -229,6 +229,7 @@ export interface User {
   phase2Skipped: boolean;
   videoConsultUsed: boolean;
   onboardingDone: boolean;
+  waAutoreply: boolean; // auto-reply WhatsApp AI attivo (default true)
   // dati
   campaigns: Campaign[];
   leads: Lead[];
@@ -407,6 +408,7 @@ function rowToUser(r: any): User {
     phase2Skipped: !!r.phase2_skipped,
     videoConsultUsed: !!r.video_consult_used,
     onboardingDone: !!r.onboarding_done,
+    waAutoreply: r.wa_autoreply !== false,
     campaigns: Array.isArray(r.campaigns) ? (r.campaigns as Campaign[]) : [],
     leads: Array.isArray(r.leads) ? (r.leads as Lead[]) : [],
     alerts: Array.isArray(r.alerts) ? (r.alerts as AlertItem[]) : [],
@@ -438,6 +440,7 @@ function userToRow(u: User) {
     phase2_skipped: u.phase2Skipped,
     video_consult_used: u.videoConsultUsed,
     onboarding_done: u.onboardingDone,
+    wa_autoreply: u.waAutoreply,
     campaigns: u.campaigns,
     alerts: u.alerts,
   };
@@ -527,6 +530,7 @@ interface StoreCtx {
     meter?: unknown;
   }>;
   draftWhatsApp: (contact: string, recent: { direction: string; body: string }[]) => Promise<string>;
+  setWaAutoreply: (on: boolean) => void;
   generateCampaignBrief: (input?: {
     objective?: string;
     budgetDaily?: number;
@@ -1526,6 +1530,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const setWaAutoreply: StoreCtx['setWaAutoreply'] = (on) => {
+    mutateUser((u) => ({ ...u, waAutoreply: on }));
+  };
+
   const generateCampaignBrief: StoreCtx['generateCampaignBrief'] = async (input) => {
     const u = userRef.current;
     if (!u) return { ok: false, error: 'Utente non disponibile' };
@@ -1703,6 +1711,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       phase2Skipped: false,
       videoConsultUsed: false,
       onboardingDone: false,
+      waAutoreply: true,
       campaigns: [],
       leads: [],
       alerts: [],
@@ -1752,6 +1761,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     fetchWaMessages,
     sendWhatsApp,
     draftWhatsApp,
+    setWaAutoreply,
     markAlertsRead,
     resetAll,
   };
