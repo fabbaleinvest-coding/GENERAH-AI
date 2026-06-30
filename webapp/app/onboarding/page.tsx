@@ -9,6 +9,7 @@ import { Guard } from '@/components/Guard';
 import { AppShell } from '@/components/AppShell';
 import { Container, Button, Badge, Photo, Spinner, cx } from '@/components/ui';
 import VideoConsult from '@/components/VideoConsult';
+import SpotAssembler from '@/components/SpotAssembler';
 
 type Step = 'kb' | 'social' | 'meta' | 'director' | 'video' | 'photos' | 'preview' | 'targeting' | 'launch' | 'consult';
 
@@ -251,6 +252,7 @@ function OnboardingInner() {
   const [videoProgress, setVideoProgress] = useState('');
   const [adClips, setAdClips] = useState<string[]>([]);
   const [adAudio, setAdAudio] = useState<string | null>(null);
+  const [adSrt, setAdSrt] = useState('');
   const [photoChoice, setPhotoChoice] = useState<'upload' | 'generate' | null>(null);
   const [photoReady, setPhotoReady] = useState(false);
 
@@ -349,6 +351,7 @@ function OnboardingInner() {
     if (r.ok && r.clips.length) {
       setAdClips(r.clips);
       setAdAudio(r.audioUrl);
+      setAdSrt(r.srt);
       setVideoProgress('');
       setVideoDone(true);
     } else {
@@ -986,6 +989,12 @@ function OnboardingInner() {
               <button className="mt-3 w-full rounded-lg bg-teal-400 py-2 text-[0.82rem] font-semibold text-ink-900">Scopri di più</button>
             </div>
           </div>
+
+          {adClips.length > 0 && (
+            <div className="mx-auto mt-6 max-w-sm">
+              <SpotAssembler clips={adClips} audioUrl={adAudio} srt={adSrt} />
+            </div>
+          )}
 
           <div className="mt-7 flex justify-end">
             <Button onClick={goNext}>Imposta budget e pubblico</Button>

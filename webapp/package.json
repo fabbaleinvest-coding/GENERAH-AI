@@ -10,6 +10,8 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
     "@heygen/liveavatar-web-sdk": "^0.0.18",
     "@supabase/supabase-js": "^2.45.4",
     "mammoth": "^1.12.0",
