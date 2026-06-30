@@ -396,15 +396,26 @@ function OnboardingInner() {
     const r = await buildLookalike(file);
     setXlsBusy(false);
     if (typeof r.count === 'number') setContacts(r.count);
+    const few = typeof r.count === 'number' && r.count < 100;
     if (!r.ok) {
-      setXlsErr(r.error || 'Creazione lookalike non riuscita.');
+      const raw = r.error || 'Creazione lookalike non riuscita.';
+      // Errore tipico alla prima lista: i Termini per i segmenti di pubblico
+      // personalizzati non sono ancora stati accettati nel Business Manager.
+      const termsLike = /term|consent|tos|custom audience/i.test(raw);
+      setXlsErr(
+        termsLike
+          ? 'Meta ha rifiutato la lista: accetta una volta i “Termini per i segmenti di pubblico personalizzati” in Gestione inserzioni, poi riprova.'
+          : raw
+      );
       return;
     }
     if (r.lookalikeId) {
       setLookalikeAudienceId(r.lookalikeId);
       setXlsStatus('Pubblico simile (lookalike) creato e pronto per la campagna.');
     } else if (r.configured === false) {
-      setXlsStatus('Lista letta. Collega Meta per generare il lookalike alla pubblicazione.');
+      setXlsStatus('Lista letta e hashata. Collega Meta per generare il lookalike alla pubblicazione.');
+    } else if (few) {
+      setXlsStatus('Lista caricata su Meta. Per generare il lookalike servono ~100 contatti corrisposti: aggiungine altri e ricarica.');
     } else {
       setXlsStatus(r.note || 'Lista caricata su Meta. Il lookalike sarà disponibile a elaborazione completata.');
     }
