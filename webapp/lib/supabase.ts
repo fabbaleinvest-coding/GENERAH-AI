@@ -25,3 +25,6 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 });
 
 export const KB_BUCKET = 'kb';
+// Bucket PUBBLICO per gli spot montati: serve un URL scaricabile da Meta
+// (file_url) come creatività. Niente dati sensibili (sono annunci pubblicitari).
+export const AD_SPOTS_BUCKET = 'ad-spots';

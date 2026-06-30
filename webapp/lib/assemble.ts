@@ -29,6 +29,7 @@ export interface AssembleInput {
 
 export interface AssembleResult {
   url: string;
+  blob: Blob;
   mime: string;
   subtitlesBurned: boolean;
   srtUrl: string | null;
@@ -325,5 +326,5 @@ export async function assembleSpot(input: AssembleInput): Promise<AssembleResult
     /* ignore */
   }
 
-  return { url, mime: 'video/mp4', subtitlesBurned, srtUrl, bytes: out.byteLength };
+  return { url, blob, mime: 'video/mp4', subtitlesBurned, srtUrl, bytes: out.byteLength };
 }

@@ -253,6 +253,7 @@ function OnboardingInner() {
   const [adClips, setAdClips] = useState<string[]>([]);
   const [adAudio, setAdAudio] = useState<string | null>(null);
   const [adSrt, setAdSrt] = useState('');
+  const [assembledSpotUrl, setAssembledSpotUrl] = useState('');
   const [photoChoice, setPhotoChoice] = useState<'upload' | 'generate' | null>(null);
   const [photoReady, setPhotoReady] = useState(false);
 
@@ -393,7 +394,7 @@ function OnboardingInner() {
     let meta: Awaited<ReturnType<typeof publishMetaCampaign>> | null = null;
     if (aiBrief && adClips.length > 0) {
       meta = await publishMetaCampaign(aiBrief, {
-        videoUrl: adClips[0],
+        videoUrl: assembledSpotUrl || adClips[0],
         dailyBudgetEur: budget,
         geoText: geo,
         ageRange,
@@ -1029,7 +1030,7 @@ function OnboardingInner() {
 
           {adClips.length > 0 && (
             <div className="mx-auto mt-6 max-w-sm">
-              <SpotAssembler clips={adClips} audioUrl={adAudio} srt={adSrt} />
+              <SpotAssembler clips={adClips} audioUrl={adAudio} srt={adSrt} onSpotReady={setAssembledSpotUrl} />
             </div>
           )}
 

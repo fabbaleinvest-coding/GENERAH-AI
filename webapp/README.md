@@ -161,3 +161,14 @@ connessione, le chiamate ricadono sulla configurazione via env.
   l'utente non ha una connessione OAuth.
 
 Le campagne vengono create in **PAUSA**: rivedi in Gestione Inserzioni prima di attivare.
+
+### Creatività: spot montato come video della campagna
+
+Lo spot finale (2 scene + voiceover + sottotitoli) viene assemblato nel browser
+(ffmpeg.wasm) e caricato sul bucket pubblico `ad-spots`; il suo URL pubblico è
+passato a Meta come `file_url` della creatività. Se il montaggio non è stato
+eseguito, la pubblicazione ricade sulla prima clip generata.
+
+Setup una tantum: esegui `supabase/migrations/0002_ad_spots_bucket.sql` nel SQL
+editor di Supabase (crea il bucket pubblico `ad-spots` con upload nella cartella
+del singolo utente).

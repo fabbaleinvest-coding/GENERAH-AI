@@ -3,31 +3,52 @@
 import { useState } from 'react';
 import { Button, Spinner } from '@/components/ui';
 import { assembleSpot, type AssembleResult } from '@/lib/assemble';
+import { useStore } from '@/lib/store';
 
 type Phase = 'idle' | 'running' | 'done' | 'error';
+type UploadPhase = 'idle' | 'uploading' | 'done' | 'error';
 
 export default function SpotAssembler({
   clips,
   audioUrl,
   srt,
   fileName = 'generah-spot.mp4',
+  onSpotReady,
 }: {
   clips: string[];
   audioUrl: string | null;
   srt: string;
   fileName?: string;
+  onSpotReady?: (url: string) => void;
 }) {
+  const { uploadAdSpot } = useStore();
   const [phase, setPhase] = useState<Phase>('idle');
   const [msg, setMsg] = useState('');
   const [ratio, setRatio] = useState<number | null>(null);
   const [result, setResult] = useState<AssembleResult | null>(null);
   const [error, setError] = useState('');
+  const [uploadPhase, setUploadPhase] = useState<UploadPhase>('idle');
+  const [uploadErr, setUploadErr] = useState('');
+
+  async function uploadSpot(blob: Blob) {
+    setUploadPhase('uploading');
+    setUploadErr('');
+    const r = await uploadAdSpot(blob);
+    if (r.ok && r.url) {
+      setUploadPhase('done');
+      onSpotReady?.(r.url);
+    } else {
+      setUploadPhase('error');
+      setUploadErr(r.error || 'Caricamento non riuscito');
+    }
+  }
 
   async function run() {
     setPhase('running');
     setError('');
     setResult(null);
     setRatio(null);
+    setUploadPhase('idle');
     setMsg('Avvio del montaggio…');
     try {
       const r = await assembleSpot({
@@ -41,6 +62,7 @@ export default function SpotAssembler({
       });
       setResult(r);
       setPhase('done');
+      if (onSpotReady) void uploadSpot(r.blob);
     } catch (e) {
       setError((e as Error).message || 'Montaggio non riuscito');
       setPhase('error');
@@ -79,6 +101,23 @@ export default function SpotAssembler({
             ? 'Spot 9:16 pronto · sottotitoli inclusi nel video.'
             : 'Spot 9:16 pronto. I sottotitoli sono nel file .srt: caricalo su Meta insieme al video.'}
         </p>
+        {onSpotReady && uploadPhase !== 'idle' && (
+          <div className="text-center text-[0.72rem] leading-relaxed">
+            {uploadPhase === 'uploading' && (
+              <span className="inline-flex items-center gap-2 text-mist/70">
+                <Spinner className="h-3.5 w-3.5 text-teal-300" /> Caricamento dello spot per la campagna…
+              </span>
+            )}
+            {uploadPhase === 'done' && (
+              <span className="text-teal-200">Spot caricato: sarà la creatività della campagna.</span>
+            )}
+            {uploadPhase === 'error' && (
+              <span className="text-mist/60">
+                Caricamento non riuscito ({uploadErr}). Useremo la prima scena come creatività.
+              </span>
+            )}
+          </div>
+        )}
       </div>
     );
   }

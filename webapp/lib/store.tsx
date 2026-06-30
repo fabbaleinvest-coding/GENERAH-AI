@@ -13,7 +13,7 @@ import {
   MeterKey,
   priceWithDiscount,
 } from './plans';
-import { supabase, KB_BUCKET } from './supabase';
+import { supabase, KB_BUCKET, AD_SPOTS_BUCKET } from './supabase';
 import { scenesToSrt } from './subtitles';
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -394,6 +394,7 @@ interface StoreCtx {
     ids?: { campaignId: string; adSetId: string; adId: string; leadFormId: string };
     error?: string;
   }>;
+  uploadAdSpot: (blob: Blob) => Promise<{ ok: boolean; url?: string; error?: string }>;
   addLead: (l: Omit<Lead, 'id' | 'createdAt' | 'lastTouch'>) => void;
   updateLead: (id: string, patch: Partial<Lead>) => void;
   enrichLead: (id: string) => Promise<{ ok: boolean; error?: string }>;
@@ -831,6 +832,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return { ok: false, error: (e as Error).message };
     }
   };
+  // Carica lo spot montato (Blob dal browser) su uno storage PUBBLICO e
+  // restituisce l'URL: serve come file_url scaricabile da Meta per la creatività.
+  const uploadAdSpot: StoreCtx['uploadAdSpot'] = async (blob) => {
+    try {
+      const uid = (await supabase.auth.getSession()).data.session?.user?.id;
+      if (!uid) return { ok: false, error: 'Sessione non disponibile' };
+      const path = `${uid}/${Date.now()}.mp4`;
+      const { error } = await supabase.storage
+        .from(AD_SPOTS_BUCKET)
+        .upload(path, blob, { contentType: 'video/mp4', upsert: true });
+      if (error) return { ok: false, error: error.message };
+      const { data } = supabase.storage.from(AD_SPOTS_BUCKET).getPublicUrl(path);
+      if (!data?.publicUrl) return { ok: false, error: 'URL pubblico non disponibile' };
+      return { ok: true, url: data.publicUrl };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  };
+
   const skipPhase2 = () => mutateUser((u) => ({ ...u, phase2Skipped: true }));
   const useVideoConsult = () => mutateUser((u) => ({ ...u, videoConsultUsed: true }));
   const finishOnboarding = () => mutateUser((u) => ({ ...u, onboardingDone: true }));
@@ -1164,6 +1184,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     generateCampaignBrief,
     generateAdVideo,
     publishMetaCampaign,
+    uploadAdSpot,
     addLead,
     updateLead,
     enrichLead,
