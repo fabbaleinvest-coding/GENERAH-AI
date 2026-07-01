@@ -2,15 +2,47 @@
 //  GENERAH AI · Generatore di risposte WhatsApp (Claude Opus 4.8).
 //
 //  Dato lo storico recente della conversazione + il contesto del business
-//  (settore + knowledge base via RAG), restituisce il testo della prossima
-//  risposta. Condiviso da /api/whatsapp/draft (bozza con revisione umana) e dal
-//  webhook in entrata (auto-reply). Degrada a '' se manca ANTHROPIC_API_KEY o
-//  in caso di errore/timeout (il chiamante non invia nulla).
+//  (settore + knowledge base via RAG) + la MEMORIA di trattativa del lead
+//  (fase pipeline + riepilogo AI, via leadMemoryBlock), restituisce SIA il testo
+//  della prossima risposta SIA un riepilogo aggiornato della trattativa da
+//  ripersistere sul lead. In questo modo l'agente riprende dal punto raggiunto,
+//  qualunque sia il canale (WhatsApp o voce condividono la stessa memoria).
+//
+//  Condiviso da /api/whatsapp/draft (bozza con revisione umana) e dal webhook in
+//  entrata (auto-reply). JSON mode: Opus torna { reply, progressSummary }.
+//  Degrada a { reply: '', progressSummary: '' } se manca ANTHROPIC_API_KEY o su
+//  errore/timeout (il chiamante non invia nulla).
 // ───────────────────────────────────────────────────────────────────────────
 
 export interface WaHistoryItem {
   direction: string; // 'inbound' | 'outbound'
   body: string;
+}
+
+export interface WaReplyResult {
+  reply: string; // testo della prossima risposta ('' = non inviare)
+  progressSummary: string; // riepilogo aggiornato della trattativa ('' = invariato)
+}
+
+// Estrae il primo oggetto JSON valido dal testo del modello (tollerante a
+// eventuale preambolo o code-fence markdown).
+function parseJson(text: string): any | null {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    /* sotto */
+  }
+  const s = text.indexOf('{');
+  const e = text.lastIndexOf('}');
+  if (s >= 0 && e > s) {
+    try {
+      return JSON.parse(text.slice(s, e + 1));
+    } catch {
+      /* niente */
+    }
+  }
+  return null;
 }
 
 export async function generateWaReply(opts: {
@@ -20,10 +52,12 @@ export async function generateWaReply(opts: {
   kbFiles?: string[];
   ragContext?: string;
   goalDirective?: string;
+  memoryBlock?: string;
   timeoutMs?: number;
-}): Promise<string> {
+}): Promise<WaReplyResult> {
+  const empty: WaReplyResult = { reply: '', progressSummary: '' };
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return '';
+  if (!apiKey) return empty;
 
   const nome = opts.nome || '';
   const settore = opts.settore || '';
@@ -39,11 +73,19 @@ export async function generateWaReply(opts: {
     .filter((l) => l.length > 6)
     .join('\n');
 
+  const memBlock = opts.memoryBlock ? `${opts.memoryBlock}\n\n` : '';
+
   const prompt = `Azienda di ${nome || 'un imprenditore'}, settore: ${settore || 'non specificato'}.
-${kbBlock}${opts.goalDirective ? `${opts.goalDirective}\n\n` : ''}Conversazione WhatsApp in corso (Cliente = l'interlocutore, Noi = l'azienda):
+${kbBlock}${opts.goalDirective ? `${opts.goalDirective}\n\n` : ''}${memBlock}Conversazione WhatsApp in corso (Cliente = l'interlocutore, Noi = l'azienda):
 ${transcript || '(primo contatto)'}
 
-Scrivi la PROSSIMA risposta WhatsApp dell'azienda: breve (1-3 frasi), cordiale, diretta, in italiano. Fai avanzare la conversazione verso il passo successivo (informazione utile, domanda di qualifica, proposta di appuntamento). Niente markdown, niente firma, niente virgolette: restituisci solo il testo del messaggio.`;
+Scrivi la PROSSIMA risposta WhatsApp dell'azienda: breve (1-3 frasi), cordiale, diretta, in italiano. Riprendi dal punto raggiunto nella trattativa — non ripetere ciò che è già stato detto o inviato — e falla avanzare verso il passo successivo (informazione utile, domanda di qualifica, proposta di appuntamento). Nel testo del messaggio niente markdown, niente firma, niente virgolette.
+
+Rispondi SOLO con un oggetto JSON valido, senza markdown, in questo formato:
+{
+  "reply": "<il testo del messaggio WhatsApp da inviare>",
+  "progressSummary": "<riepilogo AGGIORNATO e conciso (max 3-4 frasi) della trattativa finora: cosa è stato detto/inviato, obiezioni emerse, impegni presi, e da dove ripartire la prossima volta>"
+}`;
 
   const model = process.env.ANTHROPIC_MODEL || 'claude-opus-4-8';
   const controller = new AbortController();
@@ -54,24 +96,33 @@ Scrivi la PROSSIMA risposta WhatsApp dell'azienda: breve (1-3 frasi), cordiale, 
       headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
         model,
-        max_tokens: 400,
+        max_tokens: 600,
         system:
-          'Sei il miglior copywriter conversazionale al mondo: scrivi risposte WhatsApp brevi, umane e persuasive che fanno avanzare la vendita. Rispondi solo con il testo del messaggio, senza markdown.',
+          'Sei il miglior copywriter conversazionale al mondo e gestisci una trattativa di vendita su WhatsApp con memoria persistente. Scrivi risposte brevi, umane e persuasive che riprendono dal punto raggiunto e fanno avanzare la vendita. Rispondi sempre e solo con un oggetto JSON valido, senza markdown.',
         messages: [{ role: 'user', content: prompt }],
       }),
       signal: controller.signal,
     });
     const data = await res.json();
-    if (!res.ok) return '';
-    return Array.isArray(data?.content)
+    if (!res.ok) return empty;
+    const text: string = Array.isArray(data?.content)
       ? data.content
           .filter((b: any) => b?.type === 'text')
           .map((b: any) => b.text)
           .join('')
           .trim()
       : '';
+    const parsed = parseJson(text);
+    if (parsed && typeof parsed === 'object') {
+      return {
+        reply: String(parsed.reply || '').trim(),
+        progressSummary: String(parsed.progressSummary || '').trim(),
+      };
+    }
+    // Fallback: il modello non ha rispettato il JSON → usa il testo come reply.
+    return { reply: text, progressSummary: '' };
   } catch {
-    return '';
+    return empty;
   } finally {
     clearTimeout(timer);
   }

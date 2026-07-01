@@ -129,6 +129,7 @@ export function buildPhonePrompt(opts: {
   kbFiles?: string[];
   ragContext?: string;
   goalDirective?: string;
+  memoryBlock?: string;
 }): string {
   const sector = (opts.settore || '').trim() || 'la sua attività';
   const docs = (opts.kbFiles || []).filter(Boolean);
@@ -143,7 +144,7 @@ Sei il consulente commerciale AI di GENERAH AI, il reparto vendite autonomo dell
 
 # OBIETTIVO
 Capire perché la persona chiama, qualificarla (nome, esigenza, recapito), dare valore subito e portarla al passo successivo (preventivo, appuntamento, richiamata da un referente). Gestisci tu il ritmo: ascolta, non monopolizzare.${opts.goalDirective ? `\n\n${opts.goalDirective}` : ''}
-
+${opts.memoryBlock ? `\n${opts.memoryBlock}\n` : ''}
 # KNOWLEDGE BASE
 ${kbBlock}
 Usa SEMPRE questi contenuti come verità su offerta, prezzi e tono. Se manca un dato preciso, chiedilo invece di inventarlo.

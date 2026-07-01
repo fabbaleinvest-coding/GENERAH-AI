@@ -11,7 +11,7 @@ import {
   voiceConfigured,
 } from '@/lib/voice';
 import { retrieveContextForUser, formatContext } from '@/lib/retrieve';
-import { agentGoalsDirective, SECTOR_LABEL, type AgentGoal, type SectorKind } from '@/lib/crm';
+import { agentGoalsDirective, leadMemoryBlock, SECTOR_LABEL, type AgentGoal, type SectorKind } from '@/lib/crm';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -80,7 +80,7 @@ export async function POST(req: Request) {
 
     const { data: prof } = await svc
       .from('profiles')
-      .select('nome, settore, kb, meters')
+      .select('nome, settore, kb, meters, agent_goals, sector_kind')
       .eq('id', ownerId)
       .maybeSingle();
     const p = (prof as ProfileRow | null) || {};
@@ -111,7 +111,31 @@ export async function POST(req: Request) {
       : [];
     const sk = ((p as { sector_kind?: string }).sector_kind || null) as SectorKind | null;
     const goalDirective = agentGoalsDirective(goals, sk ? SECTOR_LABEL[sk] : null);
-    const instructions = buildPhonePrompt({ nome: String(p.nome || ''), settore, kbFiles, ragContext, goalDirective });
+
+    // Memoria di trattativa: se chi chiama è un lead noto (stesso numero già
+    // usato su WhatsApp o in una chiamata precedente), riprendi dal punto
+    // raggiunto — è la STESSA memoria condivisa con l'agente WhatsApp.
+    let memoryBlock = '';
+    let callerLeadId: string | null = null;
+    if (fromNum) {
+      const { data: leadRow } = await svc
+        .from('leads')
+        .select('id, deal_stage, progress_summary')
+        .eq('user_id', ownerId)
+        .eq('phone', fromNum)
+        .order('last_touch', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const lr = leadRow as { id?: string; deal_stage?: string; progress_summary?: string } | null;
+      if (lr?.id) {
+        callerLeadId = lr.id;
+        memoryBlock = leadMemoryBlock({
+          dealStage: lr.deal_stage || null,
+          progressSummary: lr.progress_summary || null,
+        });
+      }
+    }
+    const instructions = buildPhonePrompt({ nome: String(p.nome || ''), settore, kbFiles, ragContext, goalDirective, memoryBlock });
 
     try {
       await acceptCall(callId, buildAcceptSession(instructions));
@@ -136,6 +160,19 @@ export async function POST(req: Request) {
       await svc.rpc('consume_meter_for', { p_user: ownerId, p_meter: 'phone', p_amount: 1 });
     } catch {
       /* best-effort */
+    }
+
+    // Timestamp di ultima interazione sul lead chiamante (parte della memoria
+    // condivisa: la prossima azione — voce o WhatsApp — sa quand'è stato l'ultimo tocco).
+    if (callerLeadId) {
+      try {
+        await svc
+          .from('leads')
+          .update({ last_interaction_at: new Date().toISOString() })
+          .eq('id', callerLeadId);
+      } catch {
+        /* best-effort */
+      }
     }
     return ack();
   }

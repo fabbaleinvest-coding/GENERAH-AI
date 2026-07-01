@@ -44,7 +44,7 @@ export async function POST(req: Request) {
   const ragChunks = token ? await retrieveContext(token, ragQuery, 6) : [];
   const ragContext = formatContext(ragChunks);
 
-  const reply = await generateWaReply({
+  const { reply } = await generateWaReply({
     history,
     nome: body.nome || '',
     settore,

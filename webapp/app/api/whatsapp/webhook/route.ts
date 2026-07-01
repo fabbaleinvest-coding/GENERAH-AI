@@ -10,7 +10,7 @@ import {
 } from '@/lib/whatsapp';
 import { retrieveContextForUser, formatContext } from '@/lib/retrieve';
 import { generateWaReply } from '@/lib/waReply';
-import { agentGoalsDirective, SECTOR_LABEL, type AgentGoal, type SectorKind } from '@/lib/crm';
+import { agentGoalsDirective, leadMemoryBlock, SECTOR_LABEL, type AgentGoal, type SectorKind } from '@/lib/crm';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -166,13 +166,29 @@ async function maybeAutoReply(
   const waSk = (p.sector_kind || null) as SectorKind | null;
   const goalDirective = agentGoalsDirective(waGoals, waSk ? SECTOR_LABEL[waSk] : null);
 
-  const reply = await generateWaReply({
+  // Memoria di trattativa del lead (la STESSA che legge l'agente vocale): fase
+  // pipeline + riepilogo AI, così l'auto-reply riprende dal punto raggiunto e
+  // non ricomincia da capo tra un canale e l'altro.
+  const leadId = `wa_${ctx.userId}_${ctx.contact}`;
+  const { data: leadRow } = await db
+    .from('leads')
+    .select('deal_stage, progress_summary')
+    .eq('id', leadId)
+    .maybeSingle();
+  const lr = leadRow as { deal_stage?: string; progress_summary?: string } | null;
+  const memoryBlock = leadMemoryBlock({
+    dealStage: lr?.deal_stage || null,
+    progressSummary: lr?.progress_summary || null,
+  });
+
+  const { reply, progressSummary } = await generateWaReply({
     history,
     nome: String(p.nome || ''),
     settore: String(p.settore || ''),
     kbFiles,
     ragContext,
     goalDirective,
+    memoryBlock,
     timeoutMs: 12000,
   });
   if (!reply) return;
@@ -195,6 +211,12 @@ async function maybeAutoReply(
       },
       { onConflict: 'id', ignoreDuplicates: true },
     );
+
+    // Persisti la MEMORIA aggiornata della trattativa + timestamp ultima
+    // interazione: il prossimo turno (WhatsApp o voce) riparte da qui.
+    const memUpdate: Record<string, unknown> = { last_interaction_at: new Date().toISOString() };
+    if (progressSummary) memUpdate.progress_summary = progressSummary;
+    await db.from('leads').update(memUpdate).eq('id', leadId);
   } catch {
     /* invio fallito: si prosegue */
   }
