@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { retrieveContext, formatContext } from '@/lib/retrieve';
+import { agentGoalsDirective, SECTOR_LABEL, type AgentGoal, type SectorKind } from '@/lib/crm';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -44,6 +45,8 @@ const END_CALL_TOOL = {
 type Body = {
   nome?: string;
   settore?: string;
+  agentGoals?: string[];
+  sectorKind?: string;
   kbFiles?: string[];
   minutes?: number;
 };
@@ -53,7 +56,8 @@ function buildSalesPrompt(
   settore: string,
   kbFiles: string[],
   minutes: number,
-  ragContext: string
+  ragContext: string,
+  goalDirective: string
 ): string {
   const safeName = (name || '').trim() || "l'interlocutore";
   const sector = (settore || '').trim() || 'la sua attività';
@@ -93,7 +97,7 @@ Parla SEMPRE come se conoscessi a fondo questa azienda: adatta esempi, linguaggi
 - "Costa troppo": confrontalo col costo e i limiti di un dipendente (ferie, orari, lead trascurati) e col valore dei clienti persi oggi; bastano poche conversioni in più al mese per ripagarlo.
 - "I miei clienti non vogliono parlare con un'AI": la maggior parte apprezza soprattutto una risposta immediata a qualsiasi ora; il tocco umano resta dove conta.
 - "La mia attività è troppo specifica": è proprio la personalizzazione sulla knowledge base a gestire le specificità.
-
+${goalDirective ? `\n# OBIETTIVO CON I LEAD\n${goalDirective}\n` : ''}
 # CHIUSURA (CALL TO ACTION)
 Verso la fine, chiudi con naturalezza: "${safeName}, il modo migliore per capire l'impatto sul suo business è vederlo lavorare sui suoi contatti reali. Procediamo attivando il sistema / fissando una breve call strategica: quando le è più comodo?". Una volta concordato il passo, salutalo cordialmente e invoca lo strumento 'end_call'.
 
@@ -119,7 +123,11 @@ async function createToken(body: Body, token: string) {
   const ragChunks = token ? await retrieveContext(token, ragQuery, 10) : [];
   const ragContext = formatContext(ragChunks, 6000);
 
-  const instructions = buildSalesPrompt(name, body.settore || '', body.kbFiles || [], minutes, ragContext);
+  const goalDirective = agentGoalsDirective(
+    (Array.isArray(body.agentGoals) ? body.agentGoals : []) as AgentGoal[],
+    body.sectorKind ? SECTOR_LABEL[body.sectorKind as SectorKind] : null
+  );
+  const instructions = buildSalesPrompt(name, body.settore || '', body.kbFiles || [], minutes, ragContext, goalDirective);
   const greeting =
     `Buongiorno ${name}, sono il consulente AI di GENERAH AI. In pochi minuti le mostro come posso acquisire e convertire i suoi contatti, senza sosta. Mi dica: oggi come gestite chi vi contatta?`;
 

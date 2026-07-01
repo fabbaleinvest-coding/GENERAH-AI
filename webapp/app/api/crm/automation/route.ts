@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { retrieveContext, formatContext } from '@/lib/retrieve';
-import { agentGoalsDirective, SECTOR_LABEL, type AgentGoal } from '@/lib/crm';
+import { agentGoalsDirective, leadMemoryBlock, SECTOR_LABEL, type AgentGoal } from '@/lib/crm';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,6 +33,9 @@ type Body = {
   sectorKind?: string;
   automationGoal?: string;
   agentGoals?: string[];
+  dealStage?: string;
+  progressSummary?: string;
+  history?: { when?: string; channel?: string; summary?: string }[];
   autonomy?: string; // 'auto' | 'approva'
   kbFiles?: string[];
 };
@@ -85,6 +88,11 @@ Strategia per settore "${sector}": presenta la soluzione su misura, evidenzia be
     b.agentGoals && b.agentGoals.length
       ? `\n${agentGoalsDirective(b.agentGoals as AgentGoal[], sectorLabel)}\n`
       : '';
+  const memory = leadMemoryBlock({
+    dealStage: b.dealStage,
+    progressSummary: b.progressSummary,
+    history: b.history,
+  });
 
   return `Azienda di ${b.nome || "un'impresa"}, settore: ${b.settore || 'n/d'} (operativo: ${sector}). ${kb}
 
@@ -95,6 +103,8 @@ LEAD:
 - Interesse: ${lead.interest || 'n/d'}
 - Stato CRM: ${lead.status || 'nuovo'}
 - Note: ${lead.notes || 'nessuna'}
+
+${memory}
 
 ${playbook}${goalsBlock}
 
@@ -108,7 +118,10 @@ Rispondi ESCLUSIVAMENTE con JSON:
   "emailSubject": "<oggetto se canale=email, altrimenti stringa vuota>",
   "message": "<il messaggio pronto da inviare sul canale scelto>",
   "appointment": ${goal === 'appuntamento' ? '{ "title": "<titolo appuntamento>", "whenHint": "<es. \\"dom mattina\\" o \\"questa settimana\\">" }' : 'null'},
-  "newStatus": "<stato CRM suggerito dopo l'azione: nuovo|contattato|qualificato|appuntamento|cliente|perso>"
+  "newStatus": "<stato CRM suggerito dopo l'azione: nuovo|contattato|qualificato|appuntamento|cliente|perso>",
+  "dealStage": "<fase trattativa aggiornata: nuovo|contattato|in_conversazione|offerta_inviata|in_trattativa|appuntamento_fissato|vinto|perso>",
+  "progressSummary": "<riepilogo AGGIORNATO e conciso (max 3-4 frasi) della trattativa: cosa è stato detto/inviato finora, obiezioni emerse, impegni presi, e da dove ripartire la prossima volta>",
+  "nextStep": "<il prossimo passo concreto previsto dopo questo messaggio>"
 }`;
 }
 
@@ -183,6 +196,9 @@ export async function POST(req: Request) {
       message: String(parsed.message || ''),
       appointment,
       newStatus: String(parsed.newStatus || lead.status || 'contattato'),
+      dealStage: String(parsed.dealStage || body.dealStage || 'contattato'),
+      progressSummary: String(parsed.progressSummary || body.progressSummary || ''),
+      nextStep: String(parsed.nextStep || ''),
     });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

@@ -280,6 +280,8 @@ export default function VideoConsult({ mode, maxMinutes, onEnded }: VideoConsult
       body: JSON.stringify({
         nome: user?.nome || '',
         settore: user?.settore || '',
+        agentGoals: user?.agentGoals ?? [],
+        sectorKind: user?.sectorKind ?? null,
         kbFiles: (user?.kb || []).map((f) => f.name),
         minutes: maxMinutes,
       }),

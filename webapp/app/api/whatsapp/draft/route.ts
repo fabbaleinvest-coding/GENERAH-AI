@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { retrieveContext, formatContext } from '@/lib/retrieve';
 import { generateWaReply } from '@/lib/waReply';
+import { agentGoalsDirective, SECTOR_LABEL, type AgentGoal, type SectorKind } from '@/lib/crm';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -13,7 +14,7 @@ export const maxDuration = 30;
 // ─────────────────────────────────────────────────────────────────────────
 
 type Msg = { direction?: string; body?: string };
-type Body = { contact?: string; messages?: Msg[]; nome?: string; settore?: string; kbFiles?: string[] };
+type Body = { contact?: string; messages?: Msg[]; nome?: string; settore?: string; kbFiles?: string[]; agentGoals?: string[]; sectorKind?: string };
 
 function bearer(req: Request): string {
   const h = req.headers.get('authorization') || '';
@@ -49,6 +50,10 @@ export async function POST(req: Request) {
     settore,
     kbFiles: Array.isArray(body.kbFiles) ? body.kbFiles : [],
     ragContext,
+    goalDirective: agentGoalsDirective(
+      (Array.isArray(body.agentGoals) ? body.agentGoals : []) as AgentGoal[],
+      body.sectorKind ? SECTOR_LABEL[body.sectorKind as SectorKind] : null
+    ),
   });
   if (!reply) return NextResponse.json({ error: 'Bozza non disponibile' }, { status: 502 });
   return NextResponse.json({ reply });

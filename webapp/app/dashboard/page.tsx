@@ -18,6 +18,7 @@ import {
   type ApptStatus,
   SECTOR_LABEL,
   GOAL_LABEL,
+  DEAL_STAGE_LABEL,
   APPT_STATUS_LABEL,
 } from '@/lib/crm';
 import { Guard } from '@/components/Guard';
@@ -793,6 +794,21 @@ function LeadsView() {
                             <span className={cx('rounded-full px-2.5 py-0.5 text-[0.74rem] font-medium', l.score >= 75 ? 'bg-teal-400/15 text-teal-200' : l.score >= 55 ? 'bg-amber-soft/15 text-amber-soft' : 'bg-white/10 text-mist')}>Conversione {l.score}%</span>
                             <button onClick={() => runAi(l)} className="ml-auto text-[0.76rem] text-mist underline-offset-2 hover:text-teal-200 hover:underline">Rigenera</button>
                           </div>
+                          {(l.dealStage || l.progressSummary) && (
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="text-[0.68rem] uppercase tracking-wide text-mist/50">Trattativa</p>
+                                {l.dealStage && (
+                                  <span className="rounded-full bg-teal-400/12 px-2 py-0.5 text-[0.7rem] text-teal-200">
+                                    {DEAL_STAGE_LABEL[l.dealStage]}
+                                  </span>
+                                )}
+                              </div>
+                              {l.progressSummary && (
+                                <p className="mt-1 text-[0.9rem] text-bone/90">{l.progressSummary}</p>
+                              )}
+                            </div>
+                          )}
                           {l.aiSummary && (
                             <div>
                               <p className="text-[0.68rem] uppercase tracking-wide text-mist/50">Sintesi</p>

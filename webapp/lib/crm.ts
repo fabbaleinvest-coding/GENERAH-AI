@@ -113,6 +113,62 @@ ${steps}
 Dai valore prima di chiedere, qualifica il lead e, quando pertinente, proponi un passo concreto e datato. Usa la knowledge base come verità su prodotti, servizi, prezzi e tono.`;
 }
 
+// ── Stato di avanzamento della trattativa con il lead ───────────────────────
+//  Persistito su leads.deal_stage. Insieme a leads.progress_summary (riepilogo
+//  AI-mantenuto della conversazione/trattativa), forma la MEMORIA che ogni agente
+//  legge prima di agire, per riprendere dal punto giusto verso l'obiettivo.
+export type DealStage =
+  | 'nuovo'
+  | 'contattato'
+  | 'in_conversazione'
+  | 'offerta_inviata'
+  | 'in_trattativa'
+  | 'appuntamento_fissato'
+  | 'vinto'
+  | 'perso';
+
+export const DEAL_STAGE_LIST: DealStage[] = [
+  'nuovo',
+  'contattato',
+  'in_conversazione',
+  'offerta_inviata',
+  'in_trattativa',
+  'appuntamento_fissato',
+  'vinto',
+  'perso',
+];
+
+export const DEAL_STAGE_LABEL: Record<DealStage, string> = {
+  nuovo: 'Nuovo',
+  contattato: 'Contattato',
+  in_conversazione: 'In conversazione',
+  offerta_inviata: 'Offerta inviata',
+  in_trattativa: 'In trattativa',
+  appuntamento_fissato: 'Appuntamento fissato',
+  vinto: 'Vinto',
+  perso: 'Perso',
+};
+
+// Blocco MEMORIA da iniettare nei prompt: fase trattativa + riepilogo AI +
+// ultime interazioni. Fa riprendere l'agente dal punto raggiunto.
+export function leadMemoryBlock(input: {
+  dealStage?: string | null;
+  progressSummary?: string | null;
+  history?: { when?: string; channel?: string; summary?: string }[] | null;
+}): string {
+  const stageKey = input.dealStage || 'nuovo';
+  const stageLabel = (DEAL_STAGE_LABEL as Record<string, string>)[stageKey] || stageKey;
+  const summary = (input.progressSummary || '').trim();
+  const hist = (input.history || [])
+    .slice(-8)
+    .map((e) => `- ${[e.when, e.channel].filter(Boolean).join(' · ')}: ${(e.summary || '').trim()}`)
+    .filter((s) => s.length > 4);
+  return `# STATO E STORICO DELLA TRATTATIVA
+Fase attuale: ${stageLabel}.
+${summary ? `Riepilogo trattativa finora: ${summary}` : 'Nessuna trattativa precedente registrata: è un primo contatto.'}${hist.length ? `\nUltime interazioni:\n${hist.join('\n')}` : ''}
+Riprendi ESATTAMENTE da qui: non ripartire da zero e non ripetere ciò che è già stato detto o inviato; fai avanzare la trattativa dal punto raggiunto verso l'obiettivo.`;
+}
+
 // ── Timeline ─────────────────────────────────────────────────────────────────
 export type LeadEventType =
   | 'nota'

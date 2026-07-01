@@ -19,6 +19,7 @@ export async function generateWaReply(opts: {
   settore?: string;
   kbFiles?: string[];
   ragContext?: string;
+  goalDirective?: string;
   timeoutMs?: number;
 }): Promise<string> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -39,7 +40,7 @@ export async function generateWaReply(opts: {
     .join('\n');
 
   const prompt = `Azienda di ${nome || 'un imprenditore'}, settore: ${settore || 'non specificato'}.
-${kbBlock}Conversazione WhatsApp in corso (Cliente = l'interlocutore, Noi = l'azienda):
+${kbBlock}${opts.goalDirective ? `${opts.goalDirective}\n\n` : ''}Conversazione WhatsApp in corso (Cliente = l'interlocutore, Noi = l'azienda):
 ${transcript || '(primo contatto)'}
 
 Scrivi la PROSSIMA risposta WhatsApp dell'azienda: breve (1-3 frasi), cordiale, diretta, in italiano. Fai avanzare la conversazione verso il passo successivo (informazione utile, domanda di qualifica, proposta di appuntamento). Niente markdown, niente firma, niente virgolette: restituisci solo il testo del messaggio.`;

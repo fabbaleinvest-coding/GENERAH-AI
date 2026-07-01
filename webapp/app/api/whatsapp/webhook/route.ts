@@ -10,6 +10,7 @@ import {
 } from '@/lib/whatsapp';
 import { retrieveContextForUser, formatContext } from '@/lib/retrieve';
 import { generateWaReply } from '@/lib/waReply';
+import { agentGoalsDirective, SECTOR_LABEL, type AgentGoal, type SectorKind } from '@/lib/crm';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -127,10 +128,10 @@ async function maybeAutoReply(
 
   const { data: prof } = await db
     .from('profiles')
-    .select('wa_autoreply, nome, settore, kb')
+    .select('wa_autoreply, nome, settore, kb, agent_goals, sector_kind')
     .eq('id', ctx.userId)
     .maybeSingle();
-  const p = prof as { wa_autoreply?: boolean; nome?: string; settore?: string; kb?: { name?: string }[] } | null;
+  const p = prof as { wa_autoreply?: boolean; nome?: string; settore?: string; kb?: { name?: string }[]; agent_goals?: AgentGoal[]; sector_kind?: string } | null;
   if (!p || p.wa_autoreply === false) return; // auto-reply disattivato
 
   // Storico recente con questo contatto (per dare contesto alla risposta).
@@ -161,6 +162,9 @@ async function maybeAutoReply(
     /* fallback ai nomi file */
   }
   const kbFiles = Array.isArray(p.kb) ? p.kb.map((f) => String(f?.name || '')).filter(Boolean) : [];
+  const waGoals = Array.isArray(p.agent_goals) ? p.agent_goals : [];
+  const waSk = (p.sector_kind || null) as SectorKind | null;
+  const goalDirective = agentGoalsDirective(waGoals, waSk ? SECTOR_LABEL[waSk] : null);
 
   const reply = await generateWaReply({
     history,
@@ -168,6 +172,7 @@ async function maybeAutoReply(
     settore: String(p.settore || ''),
     kbFiles,
     ragContext,
+    goalDirective,
     timeoutMs: 12000,
   });
   if (!reply) return;

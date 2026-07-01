@@ -21,6 +21,7 @@ import {
   type AutomationGoal,
   type AgentGoal,
   deriveArchetype,
+  type DealStage,
   type LeadEvent,
   type LeadEventType,
   type Appointment,
@@ -134,6 +135,10 @@ export interface Lead {
   automationPaused: boolean;
   createdAt: number;
   lastTouch: number;
+  // Stato/memoria trattativa (CRM avanzato)
+  dealStage?: DealStage;
+  progressSummary?: string;
+  lastInteractionAt?: number;
 }
 
 export const LeadStatusOrder: LeadStatus[] = [
@@ -306,6 +311,9 @@ function leadToRow(userId: string, l: Lead) {
     next_action: l.nextAction,
     ai_draft: l.aiDraft,
     tags: l.tags ?? [],
+    deal_stage: l.dealStage ?? null,
+    progress_summary: l.progressSummary ?? null,
+    last_interaction_at: l.lastInteractionAt ? new Date(l.lastInteractionAt).toISOString() : null,
     import_batch: l.importBatch ?? null,
     consent: l.consent ?? false,
     automation_paused: l.automationPaused ?? false,
@@ -330,6 +338,9 @@ function leadFromRow(r: any): Lead {
     nextAction: r.next_action ?? '',
     aiDraft: (r.ai_draft ?? null) as AiDraft | null,
     tags: Array.isArray(r.tags) ? (r.tags as string[]) : [],
+    dealStage: (r.deal_stage ?? undefined) as DealStage | undefined,
+    progressSummary: r.progress_summary ?? undefined,
+    lastInteractionAt: r.last_interaction_at ? new Date(r.last_interaction_at).getTime() : undefined,
     importBatch: r.import_batch ?? null,
     consent: !!r.consent,
     automationPaused: !!r.automation_paused,
@@ -1473,6 +1484,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if ('importBatch' in patch) dbPatch.import_batch = patch.importBatch;
     if ('consent' in patch) dbPatch.consent = patch.consent;
     if ('automationPaused' in patch) dbPatch.automation_paused = patch.automationPaused;
+    if ('dealStage' in patch) dbPatch.deal_stage = patch.dealStage;
+    if ('progressSummary' in patch) dbPatch.progress_summary = patch.progressSummary;
+    if ('lastInteractionAt' in patch)
+      dbPatch.last_interaction_at = patch.lastInteractionAt
+        ? new Date(patch.lastInteractionAt).toISOString()
+        : null;
     void supabase.from('leads').update(dbPatch).eq('id', id).eq('user_id', u.id);
   };
 
@@ -1621,6 +1638,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           sectorKind: u.sectorKind,
           automationGoal: u.automationGoal,
           agentGoals: u.agentGoals ?? [],
+          dealStage: lead.dealStage ?? null,
+          progressSummary: lead.progressSummary ?? '',
           autonomy: u.crmAutonomy,
           kbFiles: u.kb.map((f) => f.name),
         }),
@@ -1638,6 +1657,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         data?.appointment && typeof data.appointment === 'object'
           ? { title: String(data.appointment.title || ''), whenHint: String(data.appointment.whenHint || '') }
           : null;
+      const dealStage = String(data?.dealStage || lead.dealStage || '');
+      const progressSummary = String(data?.progressSummary || lead.progressSummary || '');
+      const memPatch: Partial<Lead> = { lastInteractionAt: Date.now() };
+      if (dealStage) memPatch.dealStage = dealStage as DealStage;
+      if (progressSummary) memPatch.progressSummary = progressSummary;
 
       // Idempotenza: un solo run per (lead, automazione) salvo retry esplicito.
       const dedupeKey = opts?.force ? null : `${id}:${automation}`;
@@ -1663,9 +1687,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       // In modalità autonoma avanza lo stato del lead.
       if (u.crmAutonomy === 'auto' && newStatus && newStatus !== lead.status) {
-        updateLead(id, { status: newStatus as LeadStatus });
+        updateLead(id, { status: newStatus as LeadStatus, ...memPatch });
       } else {
-        updateLead(id, { lastTouch: Date.now() });
+        updateLead(id, { lastTouch: Date.now(), ...memPatch });
       }
 
       return {
@@ -1844,6 +1868,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           messages: recent,
           nome: u.nome,
           settore: u.settore,
+          agentGoals: u.agentGoals ?? [],
+          sectorKind: u.sectorKind,
           kbFiles: u.kb.map((f) => f.name),
         }),
       });
