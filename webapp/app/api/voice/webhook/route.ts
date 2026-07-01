@@ -11,6 +11,7 @@ import {
   voiceConfigured,
 } from '@/lib/voice';
 import { retrieveContextForUser, formatContext } from '@/lib/retrieve';
+import { agentGoalsDirective, SECTOR_LABEL, type AgentGoal, type SectorKind } from '@/lib/crm';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -105,7 +106,12 @@ export async function POST(req: Request) {
     } catch {
       /* fallback ai nomi file */
     }
-    const instructions = buildPhonePrompt({ nome: String(p.nome || ''), settore, kbFiles, ragContext });
+    const goals = Array.isArray((p as { agent_goals?: unknown }).agent_goals)
+      ? ((p as { agent_goals?: AgentGoal[] }).agent_goals as AgentGoal[])
+      : [];
+    const sk = ((p as { sector_kind?: string }).sector_kind || null) as SectorKind | null;
+    const goalDirective = agentGoalsDirective(goals, sk ? SECTOR_LABEL[sk] : null);
+    const instructions = buildPhonePrompt({ nome: String(p.nome || ''), settore, kbFiles, ragContext, goalDirective });
 
     try {
       await acceptCall(callId, buildAcceptSession(instructions));

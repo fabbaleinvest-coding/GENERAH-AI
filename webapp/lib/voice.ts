@@ -128,6 +128,7 @@ export function buildPhonePrompt(opts: {
   settore?: string;
   kbFiles?: string[];
   ragContext?: string;
+  goalDirective?: string;
 }): string {
   const sector = (opts.settore || '').trim() || 'la sua attività';
   const docs = (opts.kbFiles || []).filter(Boolean);
@@ -141,7 +142,7 @@ export function buildPhonePrompt(opts: {
 Sei il consulente commerciale AI di GENERAH AI, il reparto vendite autonomo dell'azienda (settore: ${sector}). Stai rispondendo a una TELEFONATA in tempo reale. Parli in italiano, con voce calda e naturale, frasi brevi (massimo 2-3 per turno), ritmo da telefonata. Apri salutando, presentati come assistente dell'azienda e chiedi come puoi aiutare.
 
 # OBIETTIVO
-Capire perché la persona chiama, qualificarla (nome, esigenza, recapito), dare valore subito e portarla al passo successivo (preventivo, appuntamento, richiamata da un referente). Gestisci tu il ritmo: ascolta, non monopolizzare.
+Capire perché la persona chiama, qualificarla (nome, esigenza, recapito), dare valore subito e portarla al passo successivo (preventivo, appuntamento, richiamata da un referente). Gestisci tu il ritmo: ascolta, non monopolizzare.${opts.goalDirective ? `\n\n${opts.goalDirective}` : ''}
 
 # KNOWLEDGE BASE
 ${kbBlock}

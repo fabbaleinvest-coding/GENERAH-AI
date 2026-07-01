@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { retrieveContext, formatContext } from '@/lib/retrieve';
+import { agentGoalsDirective, SECTOR_LABEL, type AgentGoal } from '@/lib/crm';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,6 +32,7 @@ type Body = {
   settore?: string;
   sectorKind?: string;
   automationGoal?: string;
+  agentGoals?: string[];
   autonomy?: string; // 'auto' | 'approva'
   kbFiles?: string[];
 };
@@ -78,6 +80,12 @@ Strategia per settore "${sector}": costruisci fiducia e urgenza gentile, rispond
       : `OBIETTIVO: inviare un'OFFERTA DETTAGLIATA e portare alla CHIUSURA.
 Strategia per settore "${sector}": presenta la soluzione su misura, evidenzia benefici e prova sociale, includi un'offerta chiara (con leva/limite temporale se sensato) e una call-to-action diretta all'acquisto.`;
 
+  const sectorLabel = (SECTOR_LABEL as Record<string, string>)[sector] || b.settore || undefined;
+  const goalsBlock =
+    b.agentGoals && b.agentGoals.length
+      ? `\n${agentGoalsDirective(b.agentGoals as AgentGoal[], sectorLabel)}\n`
+      : '';
+
   return `Azienda di ${b.nome || "un'impresa"}, settore: ${b.settore || 'n/d'} (operativo: ${sector}). ${kb}
 
 LEAD:
@@ -88,7 +96,7 @@ LEAD:
 - Stato CRM: ${lead.status || 'nuovo'}
 - Note: ${lead.notes || 'nessuna'}
 
-${playbook}
+${playbook}${goalsBlock}
 
 Decidi la PROSSIMA azione migliore e scrivi il messaggio pronto da inviare, persuasivo ed empatico, in italiano, personalizzato sul lead e ancorato alla knowledge base. Scegli il canale: "whatsapp" se c'è un telefono, altrimenti "email".
 

@@ -19,6 +19,8 @@ import { prepareContacts } from './contacts';
 import {
   type SectorKind,
   type AutomationGoal,
+  type AgentGoal,
+  deriveArchetype,
   type LeadEvent,
   type LeadEventType,
   type Appointment,
@@ -254,6 +256,7 @@ export interface User {
   // CRM autonomo (testa)
   sectorKind: SectorKind | null;
   automationGoal: AutomationGoal | null;
+  agentGoals?: AgentGoal[];
   crmAutonomy: 'auto' | 'approva';
   crmBusinessHours: Record<string, unknown>;
   // dati
@@ -445,6 +448,7 @@ function rowToUser(r: any): User {
     waAutoreply: r.wa_autoreply !== false,
     sectorKind: (r.sector_kind ?? null) as SectorKind | null,
     automationGoal: (r.automation_goal ?? null) as AutomationGoal | null,
+    agentGoals: Array.isArray(r.agent_goals) ? (r.agent_goals as AgentGoal[]) : [],
     crmAutonomy: (r.crm_autonomy ?? 'auto') as 'auto' | 'approva',
     crmBusinessHours: (r.crm_business_hours ?? {}) as Record<string, unknown>,
     campaigns: Array.isArray(r.campaigns) ? (r.campaigns as Campaign[]) : [],
@@ -481,6 +485,7 @@ function userToRow(u: User) {
     wa_autoreply: u.waAutoreply,
     sector_kind: u.sectorKind,
     automation_goal: u.automationGoal,
+    agent_goals: u.agentGoals ?? [],
     crm_autonomy: u.crmAutonomy,
     crm_business_hours: u.crmBusinessHours,
     campaigns: u.campaigns,
@@ -624,6 +629,7 @@ interface StoreCtx {
     automationGoal?: AutomationGoal | null;
     rationale?: string;
   }>;
+  setAiGoals: (goals: AgentGoal[], sectorKind?: SectorKind | null) => void;
   setCrmAutonomy: (mode: 'auto' | 'approva') => void;
   automateLead: (
     id: string,
@@ -1549,6 +1555,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }
 
   // Classifica il settore operativo + l'obiettivo dell'automazione dalla KB (Opus).
+  // Obiettivi degli agenti scelti dall'utente (multi-selezione) + settore.
+  // Deriva anche l'archetipo di flusso ('appuntamento' | 'offerta_chiusura') su
+  // cui gira il motore CRM/automation esistente.
+  const setAiGoals: StoreCtx['setAiGoals'] = (goals, sectorKind) => {
+    mutateUser((u) => ({
+      ...u,
+      agentGoals: goals,
+      automationGoal: goals.length ? deriveArchetype(goals) : u.automationGoal,
+      ...(sectorKind !== undefined ? { sectorKind } : {}),
+    }));
+  };
+
   const classifySector: StoreCtx['classifySector'] = async () => {
     const u = userRef.current;
     if (!u) return { ok: false, error: 'Utente non disponibile' };
@@ -1602,6 +1620,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           settore: u.settore,
           sectorKind: u.sectorKind,
           automationGoal: u.automationGoal,
+          agentGoals: u.agentGoals ?? [],
           autonomy: u.crmAutonomy,
           kbFiles: u.kb.map((f) => f.name),
         }),
@@ -2064,6 +2083,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     removeLead,
     refreshLeads,
     classifySector,
+    setAiGoals,
     setCrmAutonomy,
     automateLead,
     importLeadsFile,

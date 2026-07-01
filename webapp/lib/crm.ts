@@ -31,6 +31,88 @@ export const GOAL_LABEL: Record<AutomationGoal, string> = {
   offerta_chiusura: 'Inviare offerta e chiudere',
 };
 
+// ── Obiettivo degli AGENTI AI nelle conversazioni con i lead ────────────────
+//  Scelto dall'utente (multi-selezione) nella Knowledge Base. Guida i prompt di
+//  voce/WhatsApp/video e l'architettura del flusso (email + WhatsApp + chiamate),
+//  coordinandosi con settore e knowledge base.
+export type AgentGoal =
+  | 'invio_offerte'
+  | 'vendita_prodotto'
+  | 'vendita_servizi'
+  | 'appuntamento_azienda'
+  | 'appuntamento_cliente'
+  | 'preparare_chiamata'
+  | 'visita_clinica';
+
+export const AGENT_GOAL_LIST: AgentGoal[] = [
+  'invio_offerte',
+  'vendita_prodotto',
+  'vendita_servizi',
+  'appuntamento_azienda',
+  'appuntamento_cliente',
+  'preparare_chiamata',
+  'visita_clinica',
+];
+
+export const AGENT_GOAL_LABEL: Record<AgentGoal, string> = {
+  invio_offerte: 'Invio offerte',
+  vendita_prodotto: 'Vendita del mio prodotto',
+  vendita_servizi: 'Vendita dei miei servizi',
+  appuntamento_azienda: 'Fissare un appuntamento in azienda',
+  appuntamento_cliente: 'Fissare un appuntamento/visita dal cliente',
+  preparare_chiamata: "Preparare il cliente a una chiamata dell'azienda",
+  visita_clinica: 'Fissare una visita in clinica per il paziente',
+};
+
+// Il "passo concreto" da ottenere per ciascun obiettivo: usato nei prompt degli
+// agenti e nel brief di flusso passato a Opus.
+export const AGENT_GOAL_STEP: Record<AgentGoal, string> = {
+  invio_offerte: "far arrivare al lead un'offerta personalizzata e spingerlo ad aprirla e valutarla",
+  vendita_prodotto: "portare il lead all'acquisto del prodotto",
+  vendita_servizi: 'portare il lead alla sottoscrizione del servizio',
+  appuntamento_azienda: "fissare un appuntamento presso la sede dell'azienda, con data e ora concrete",
+  appuntamento_cliente: 'fissare un appuntamento o una visita presso il cliente, con data e ora concrete',
+  preparare_chiamata:
+    "qualificare e predisporre il lead affinché accetti e sia pronto per una chiamata di un referente dell'azienda",
+  visita_clinica: 'fissare una visita in clinica per il paziente, con data e ora concrete',
+};
+
+// Ogni obiettivo si mappa su uno dei due archetipi di flusso già gestiti dal
+// motore CRM/automation.
+export function agentGoalArchetype(g: AgentGoal): AutomationGoal {
+  return g === 'invio_offerte' || g === 'vendita_prodotto' || g === 'vendita_servizi'
+    ? 'offerta_chiusura'
+    : 'appuntamento';
+}
+
+// Archetipo derivato da una selezione multipla: se è presente almeno un
+// obiettivo di appuntamento/visita/chiamata prevale 'appuntamento'.
+export function deriveArchetype(goals: AgentGoal[] | null | undefined): AutomationGoal {
+  const list = goals || [];
+  if (list.some((g) => agentGoalArchetype(g) === 'appuntamento')) return 'appuntamento';
+  if (list.length) return 'offerta_chiusura';
+  return 'appuntamento';
+}
+
+// Direttiva-obiettivo iniettata nei prompt degli agenti (voce/WhatsApp/video) e
+// nel brief di flusso per Opus. Coordina obiettivi + settore.
+export function agentGoalsDirective(
+  goals: AgentGoal[] | null | undefined,
+  sectorLabel?: string | null
+): string {
+  const list = (goals || []).filter((g): g is AgentGoal =>
+    (AGENT_GOAL_LIST as string[]).includes(g as string)
+  );
+  const where = sectorLabel ? ` (settore: ${sectorLabel})` : '';
+  if (!list.length) {
+    return `Obiettivo${where}: qualificare il lead e portarlo con naturalezza al passo successivo concordato (preventivo, appuntamento o richiamata).`;
+  }
+  const steps = list.map((g) => `- ${AGENT_GOAL_LABEL[g]}: ${AGENT_GOAL_STEP[g]}`).join('\n');
+  return `Obiettivo prioritario degli agenti${where}. Ogni conversazione — chiamata, WhatsApp, video — e ogni email di nurturing devono orientarsi verso l'esito, tra i seguenti, più pertinente al momento del lead:
+${steps}
+Dai valore prima di chiedere, qualifica il lead e, quando pertinente, proponi un passo concreto e datato. Usa la knowledge base come verità su prodotti, servizi, prezzi e tono.`;
+}
+
 // ── Timeline ─────────────────────────────────────────────────────────────────
 export type LeadEventType =
   | 'nota'

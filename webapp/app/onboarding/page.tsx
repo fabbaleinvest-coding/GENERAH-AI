@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/lib/store';
 import type { SocialPostDraft, CampaignBrief } from '@/lib/store';
+import { AGENT_GOAL_LIST, AGENT_GOAL_LABEL, SECTOR_LABEL, type AgentGoal, type SectorKind } from '@/lib/crm';
 import { IMG } from '@/lib/images';
 import { Guard } from '@/components/Guard';
 import { AppShell } from '@/components/AppShell';
@@ -238,7 +239,7 @@ function IntegrationTag({ children }: { children: React.ReactNode }) {
 }
 
 function OnboardingInner() {
-  const { user, addKb, removeKb, connectSocial, scheduleSocialPosts, generateSocialPlan, generateInfographic, connectMetricool, disconnectMetricool, skipSocial, connectMeta, skipPhase2, launchCampaign, generateCampaignBrief, generateAdVideo, publishMetaCampaign, buildLookalike, useVideoConsult, finishOnboarding } = useStore();
+  const { user, addKb, removeKb, connectSocial, scheduleSocialPosts, generateSocialPlan, generateInfographic, connectMetricool, disconnectMetricool, skipSocial, connectMeta, skipPhase2, launchCampaign, generateCampaignBrief, generateAdVideo, publishMetaCampaign, buildLookalike, useVideoConsult, finishOnboarding, setAiGoals } = useStore();
   const router = useRouter();
   const [step, setStep] = useState<Step>('kb');
   const fileRef = useRef<HTMLInputElement>(null);
@@ -577,6 +578,62 @@ function OnboardingInner() {
               ))}
             </ul>
           )}
+
+          {/* RAG di targeting: obiettivo degli agenti AI + settore */}
+          <div className="mt-7 rounded-2xl border border-white/8 bg-ink/40 p-5">
+            <p className="font-mono text-[0.68rem] uppercase tracking-[0.16em] text-teal-300/80">
+              Obiettivo degli agenti AI
+            </p>
+            <p className="mt-2 text-[0.85rem] leading-relaxed text-mist">
+              Scegli cosa devono ottenere gli agenti (voce, WhatsApp, video) nelle conversazioni con
+              i lead — puoi selezionarne più di uno. GENERAH orchestra email di nurturing, messaggi
+              WhatsApp e chiamate verso questi obiettivi, coordinandosi con settore e knowledge base.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {AGENT_GOAL_LIST.map((g) => {
+                const on = (user.agentGoals ?? []).includes(g);
+                return (
+                  <button
+                    key={g}
+                    type="button"
+                    onClick={() => {
+                      const cur = user.agentGoals ?? [];
+                      const next = on ? cur.filter((x) => x !== g) : [...cur, g];
+                      setAiGoals(next);
+                    }}
+                    className={cx(
+                      'rounded-full border px-3.5 py-1.5 text-[0.82rem] transition',
+                      on
+                        ? 'border-teal-300 bg-teal-400/15 text-teal-100'
+                        : 'border-white/15 text-mist hover:border-teal-300/40 hover:text-bone'
+                    )}
+                  >
+                    {on ? '✓ ' : ''}
+                    {AGENT_GOAL_LABEL[g]}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-5">
+              <label className="font-mono text-[0.68rem] uppercase tracking-[0.16em] text-mist/70">
+                Settore dell&apos;attività
+              </label>
+              <select
+                value={user.sectorKind ?? ''}
+                onChange={(e) =>
+                  setAiGoals(user.agentGoals ?? [], (e.target.value || null) as SectorKind | null)
+                }
+                className="mt-2 w-full rounded-xl border border-white/15 bg-ink/60 px-3.5 py-2.5 text-[0.9rem] text-bone outline-none transition focus:border-teal-300/60"
+              >
+                <option value="">Seleziona…</option>
+                {(Object.keys(SECTOR_LABEL) as SectorKind[]).map((s) => (
+                  <option key={s} value={s}>
+                    {SECTOR_LABEL[s]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
 
           <div className="mt-7 flex items-center justify-between">
             <span className="text-[0.8rem] text-mist/70">
