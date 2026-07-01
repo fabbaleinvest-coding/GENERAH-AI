@@ -15,14 +15,12 @@ export const metadata: Metadata = {
 export const dynamic = 'force-static';
 
 const EFFECTIVE = '1 July 2026';
-const CONTACT = 'privacy@generah.app';
+const CONTACT = 'info@generah.app';
 
-// ── Placeholder da completare con i dati legali reali del titolare ───────────
+// Dati legali del titolare.
 const LEGAL = {
-  entity: '[GENERAH — legal entity name]',
-  form: '[legal form, e.g. S.r.l.]',
-  address: '[registered address]',
-  vat: '[VAT / P.IVA]',
+  entity: 'Generah AI',
+  address: 'Via Palmiro Togliatti 103, Saronno (VA), Italy',
 };
 
 function Section({
@@ -126,8 +124,8 @@ export default function PrivacyPage() {
             <p>
               GENERAH AI is an autonomous, AI-driven sales and marketing platform. The data
               controller for the personal data described in this policy is{' '}
-              <span className="text-bone">{LEGAL.entity}</span> {LEGAL.form}, {LEGAL.address} — VAT{' '}
-              {LEGAL.vat}. You can reach us at any time at{' '}
+              <span className="text-bone">{LEGAL.entity}</span>, {LEGAL.address}. You can reach us at
+              any time at{' '}
               <a href={`mailto:${CONTACT}`} className="text-teal-300 hover:underline">
                 {CONTACT}
               </a>
