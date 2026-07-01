@@ -163,7 +163,12 @@ export function buildAcceptSession(instructions: string): Record<string, unknown
   return {
     type: 'realtime',
     model: process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime',
-    audio: { output: { voice: process.env.OPENAI_REALTIME_VOICE || 'marin' } },
+    audio: {
+      // Trascrizione del parlato del CLIENTE: necessaria per catturare i suoi
+      // turni sul canale sideband (l'audio dell'agente porta già il transcript).
+      input: { transcription: { model: process.env.OPENAI_TRANSCRIBE_MODEL || 'whisper-1' } },
+      output: { voice: process.env.OPENAI_REALTIME_VOICE || 'marin' },
+    },
     instructions: `${instructions}\n\nApri tu la conversazione con un saluto naturale e chiedi come puoi aiutare.`,
   };
 }

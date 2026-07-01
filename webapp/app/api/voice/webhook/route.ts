@@ -12,10 +12,14 @@ import {
 } from '@/lib/voice';
 import { retrieveContextForUser, formatContext } from '@/lib/retrieve';
 import { agentGoalsDirective, leadMemoryBlock, SECTOR_LABEL, type AgentGoal, type SectorKind } from '@/lib/crm';
+import { observeCall } from '@/lib/callMemory';
+import { waitUntil } from '@vercel/functions';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
+// L'osservazione della trascrizione (sideband WS) gira in background via
+// waitUntil per l'intera durata della chiamata: alza il limite della function.
+export const maxDuration = 300;
 
 // ─────────────────────────────────────────────────────────────────────────
 //  Webhook OpenAI Realtime (chiamate SIP). Un solo endpoint per tutti gli
@@ -177,6 +181,19 @@ export async function POST(req: Request) {
         await svc.from('leads').update(upd).eq('id', callerLeadId);
       } catch {
         /* best-effort */
+      }
+    }
+
+    // Osservazione della chiamata: apre il WS sideband, cattura la trascrizione
+    // e a fine chiamata riassume con Opus aggiornando la memoria CRM del lead.
+    // Gira in background (waitUntil) → non blocca l'ACK del webhook.
+    // Disattivabile con VOICE_TRANSCRIPT_SUMMARY=off.
+    if (process.env.VOICE_TRANSCRIPT_SUMMARY !== 'off' && voiceConfigured()) {
+      const task = observeCall(svc, { callId, ownerId, callerLeadId, fromE164: fromNum || null });
+      try {
+        waitUntil(task);
+      } catch {
+        void task; // fuori dal contesto Vercel: fire-and-forget
       }
     }
     return ack();

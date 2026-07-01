@@ -516,3 +516,38 @@ e compaiono nel thread del tab WhatsApp come messaggi in uscita.
 
 Env: `ANTHROPIC_API_KEY` (+ `ANTHROPIC_MODEL` opzionale), `WHATSAPP_TOKEN`,
 `SUPABASE_SERVICE_ROLE_KEY`. Senza una di queste, l'auto-reply resta inattivo.
+
+### Voce · trascrizione chiamata → riepilogo → memoria CRM
+
+Al termine di una telefonata, l'agente vocale aggiorna la MEMORIA della trattativa
+del lead (`progress_summary` + `deal_stage`), come già fanno WhatsApp e l'email.
+
+**Perché serve il sideband.** OpenAI Realtime non offre (ancora) un webhook né un
+REST per recuperare la trascrizione a fine chiamata. L'unico modo è il canale
+**WebSocket "sideband"**: dopo l'`accept`, apriamo una seconda connessione alla
+stessa sessione (`wss://api.openai.com/v1/realtime?call_id=...`) e ascoltiamo gli
+eventi di trascrizione (cliente via Whisper sull'input, agente dal transcript
+dell'audio). Alla chiusura riassumiamo con Opus 4.8 e scriviamo la memoria.
+
+**Flusso (in-app).** `voice/webhook` → `accept` (con `input.transcription`
+abilitata) → `waitUntil(observeCall)` in background → a fine chiamata (WS close o
+salvagente) `finalizeCallMemory` → Opus JSON `{progressSummary, dealStage}` →
+`update leads`. Non serve infrastruttura esterna.
+
+**Limite serverless.** L'osservazione vive nella function via `waitUntil`, quindi
+è vincolata a `maxDuration` (300s, richiede Vercel Pro; il salvagente
+`VOICE_OBSERVE_MAX_MS`≈280s finalizza la parte catturata prima della terminazione).
+Per chiamate di durata arbitraria, spostare l'osservazione su un worker
+long-running che POSTa la trascrizione all'endpoint di offload.
+
+**Offload (opzionale).** `POST /api/voice/transcript`
+(`x-voice-secret: VOICE_OBSERVER_SECRET`, body `{ownerId, transcript:[{role,text}], leadId?, fromE164?}`)
+riassume e aggiorna il CRM con la stessa logica.
+
+**Env**
+
+    OPENAI_TRANSCRIBE_MODEL   opzionale (default 'whisper-1')
+    VOICE_TRANSCRIPT_SUMMARY  'off' per disattivare l'osservazione in-app
+    VOICE_OBSERVE_MAX_MS      opzionale (default 280000)
+    VOICE_OBSERVER_SECRET     richiesto solo per l'endpoint di offload
+    ANTHROPIC_API_KEY         riassunto (Opus 4.8) · OPENAI_API_KEY  sideband WS
