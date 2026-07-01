@@ -117,6 +117,7 @@ export async function POST(req: Request) {
     // raggiunto — è la STESSA memoria condivisa con l'agente WhatsApp.
     let memoryBlock = '';
     let callerLeadId: string | null = null;
+    let callerStage: string | null = null;
     if (fromNum) {
       const { data: leadRow } = await svc
         .from('leads')
@@ -129,6 +130,7 @@ export async function POST(req: Request) {
       const lr = leadRow as { id?: string; deal_stage?: string; progress_summary?: string } | null;
       if (lr?.id) {
         callerLeadId = lr.id;
+        callerStage = lr.deal_stage || null;
         memoryBlock = leadMemoryBlock({
           dealStage: lr.deal_stage || null,
           progressSummary: lr.progress_summary || null,
@@ -166,10 +168,13 @@ export async function POST(req: Request) {
     // condivisa: la prossima azione — voce o WhatsApp — sa quand'è stato l'ultimo tocco).
     if (callerLeadId) {
       try {
-        await svc
-          .from('leads')
-          .update({ last_interaction_at: new Date().toISOString() })
-          .eq('id', callerLeadId);
+        // Aggancio memoria lato voce: una chiamata risposta è un contatto reale →
+        // avanza lo stage se è ancora al punto di partenza e aggiorna la recency.
+        // NON tocchiamo progress_summary: l'audio va diretto DIDWW↔OpenAI e non è
+        // trascritto lato webhook, quindi non inventiamo il contenuto della trattativa.
+        const upd: Record<string, unknown> = { last_interaction_at: new Date().toISOString() };
+        if (!callerStage || callerStage === 'nuovo') upd.deal_stage = 'contattato';
+        await svc.from('leads').update(upd).eq('id', callerLeadId);
       } catch {
         /* best-effort */
       }

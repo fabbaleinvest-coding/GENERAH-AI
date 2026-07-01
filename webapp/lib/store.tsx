@@ -1659,9 +1659,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           : null;
       const dealStage = String(data?.dealStage || lead.dealStage || '');
       const progressSummary = String(data?.progressSummary || lead.progressSummary || '');
+      // Nurturing e reminder sono INDIPENDENTI dalla trattativa: NON riscrivono la
+      // memoria negoziale (deal_stage/progress_summary). Solo le azioni di
+      // conversazione (first_touch, followup, book_appointment, send_offer) la
+      // aggiornano; il nurture aggiorna soltanto la recency (lastInteractionAt).
+      const touchesMemory = automation !== 'nurture';
       const memPatch: Partial<Lead> = { lastInteractionAt: Date.now() };
-      if (dealStage) memPatch.dealStage = dealStage as DealStage;
-      if (progressSummary) memPatch.progressSummary = progressSummary;
+      if (touchesMemory && dealStage) memPatch.dealStage = dealStage as DealStage;
+      if (touchesMemory && progressSummary) memPatch.progressSummary = progressSummary;
 
       // Idempotenza: un solo run per (lead, automazione) salvo retry esplicito.
       const dedupeKey = opts?.force ? null : `${id}:${automation}`;
