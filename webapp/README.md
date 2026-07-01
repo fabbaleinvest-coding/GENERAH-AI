@@ -551,3 +551,22 @@ riassume e aggiorna il CRM con la stessa logica.
     VOICE_OBSERVE_MAX_MS      opzionale (default 280000)
     VOICE_OBSERVER_SECRET     richiesto solo per l'endpoint di offload
     ANTHROPIC_API_KEY         riassunto (Opus 4.8) · OPENAI_API_KEY  sideband WS
+
+### Email · invio dalla mail professionale dell'utente (Resend)
+
+Ogni utente invia le email ai lead dalla PROPRIA email professionale (sul suo
+dominio), gestita da un unico account Resend di piattaforma. Per la deliverability
+il dominio va verificato: in **Account → Email di invio** l'utente inserisce
+l'indirizzo, riceve i record DNS (SPF/DKIM/DMARC) da aggiungere e poi verifica.
+
+- `POST /api/email/domain` `{action:'setup', email, fromName?}` crea/riusa il
+  dominio in Resend e salva `sending_email`/`resend_domain_id`; `{action:'verify'}`
+  aggiorna `email_verified`. `GET` torna lo stato + record.
+- `POST /api/email/send` `{to, subject, text|html, replyTo?}` invia dalla mail
+  verificata dell'utente. Il CRM autonomo (canale email, autonomia 'auto') invia
+  automaticamente quando il dominio è verificato.
+- Migrazione `0017_email_sending.sql` (colonne su `profiles`).
+
+**Env**
+
+    RESEND_API_KEY   API key dell'account Resend di piattaforma (obbligatoria)

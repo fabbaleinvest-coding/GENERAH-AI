@@ -1495,6 +1495,136 @@ function KbAsk() {
 }
 
 // ════════════════════════════ ACCOUNT ════════════════════════════
+function EmailSendingCard() {
+  const { user, emailDomainStatus, setupSendingEmail, verifySendingDomain } = useStore();
+  const [email, setEmail] = useState(user?.sendingEmail || '');
+  const [fromName, setFromName] = useState(user?.sendingFromName || '');
+  const [records, setRecords] = useState<
+    { record?: string; name: string; type: string; value: string; status?: string; priority?: number }[]
+  >([]);
+  const [status, setStatus] = useState('');
+  const [verified, setVerified] = useState(!!user?.emailVerified);
+  const [busy, setBusy] = useState<'idle' | 'setup' | 'verify' | 'load'>('load');
+  const [msg, setMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const r = await emailDomainStatus();
+      if (!alive) return;
+      if (r.ok) {
+        setStatus(r.status || '');
+        setVerified(!!r.verified);
+        setRecords(r.records || []);
+        if (r.sendingEmail) setEmail((e) => e || r.sendingEmail || '');
+      }
+      setBusy('idle');
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [emailDomainStatus]);
+
+  const onSetup = async () => {
+    setMsg(null);
+    setBusy('setup');
+    const r = await setupSendingEmail(email.trim(), fromName.trim() || undefined);
+    setBusy('idle');
+    if (!r.ok) return setMsg(r.error || 'Errore nel setup.');
+    setStatus(r.status || '');
+    setVerified(!!r.verified);
+    setRecords(r.records || []);
+    setMsg(r.verified ? 'Dominio già verificato ✓' : 'Dominio creato: aggiungi i record DNS qui sotto, poi verifica.');
+  };
+
+  const onVerify = async () => {
+    setMsg(null);
+    setBusy('verify');
+    const r = await verifySendingDomain();
+    setBusy('idle');
+    if (!r.ok) return setMsg(r.error || 'Errore nella verifica.');
+    setStatus(r.status || '');
+    setVerified(!!r.verified);
+    setRecords(r.records || []);
+    setMsg(
+      r.verified
+        ? 'Dominio verificato ✓ — ora le email partono dalla tua email professionale.'
+        : `Non ancora verificato (stato: ${r.status || 'in attesa'}). La propagazione DNS può richiedere qualche minuto: riprova.`
+    );
+  };
+
+  const inputCls =
+    'w-full rounded-lg border border-white/10 bg-ink-900/40 px-3 py-2 text-[0.9rem] text-bone placeholder:text-mist/40 focus:border-teal-400/60 focus:outline-none';
+
+  return (
+    <div className="rounded-2xl border border-white/8 bg-ink-900/40 p-6">
+      <div className="flex items-center justify-between">
+        <p className="font-mono text-[0.62rem] uppercase tracking-[0.16em] text-mist/70">Email di invio</p>
+        <Badge tone={verified ? 'teal' : 'amber'}>{verified ? 'Verificata' : status || 'Da configurare'}</Badge>
+      </div>
+      <p className="mt-2 text-[0.84rem] text-mist">
+        L&apos;email professionale (sul tuo dominio) da cui GENERAH invia le email ai lead. Verificando il dominio via DNS
+        eviti che finiscano in spam.
+      </p>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <input
+          className={inputCls}
+          type="email"
+          placeholder="info@tuazienda.it"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <input
+          className={inputCls}
+          type="text"
+          placeholder="Nome mittente (es. Studio Rossi)"
+          value={fromName}
+          onChange={(e) => setFromName(e.target.value)}
+        />
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <Button size="sm" onClick={onSetup} disabled={busy !== 'idle' || !email.trim()}>
+          {busy === 'setup' ? 'Configuro…' : 'Configura dominio'}
+        </Button>
+        <Button size="sm" variant="outline" onClick={onVerify} disabled={busy !== 'idle' || !records.length}>
+          {busy === 'verify' ? 'Verifico…' : 'Verifica DNS'}
+        </Button>
+      </div>
+      {msg && <p className="mt-3 text-[0.82rem] text-teal-200/90">{msg}</p>}
+
+      {records.length > 0 && !verified && (
+        <div className="mt-4 overflow-x-auto rounded-xl border border-white/8">
+          <table className="w-full text-left text-[0.72rem]">
+            <thead className="bg-white/[0.03] text-mist/60">
+              <tr>
+                <th className="px-3 py-2">Tipo</th>
+                <th className="px-3 py-2">Nome / Host</th>
+                <th className="px-3 py-2">Valore</th>
+                <th className="px-3 py-2">Stato</th>
+              </tr>
+            </thead>
+            <tbody>
+              {records.map((r, i) => (
+                <tr key={i} className="border-t border-white/5 align-top">
+                  <td className="px-3 py-2 font-mono text-bone">
+                    {r.type}
+                    {r.priority != null ? ` (${r.priority})` : ''}
+                  </td>
+                  <td className="whitespace-normal break-all px-3 py-2 font-mono text-mist">{r.name}</td>
+                  <td className="whitespace-normal break-all px-3 py-2 font-mono text-mist">{r.value}</td>
+                  <td className="px-3 py-2 text-mist/70">{r.status || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AccountView() {
   const { user, resetAll } = useStore();
   const [confirm, setConfirm] = useState(false);
@@ -1559,6 +1689,8 @@ function AccountView() {
           <Button href="/piani" variant="outline" size="sm" className="mt-5">Cambia piano</Button>
         </div>
       </div>
+
+      <EmailSendingCard />
 
       {/* reset demo */}
       <div className="rounded-2xl border border-coral/25 bg-coral/[0.04] p-6">

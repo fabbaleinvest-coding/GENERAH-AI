@@ -268,7 +268,22 @@ export interface User {
   campaigns: Campaign[];
   leads: Lead[];
   alerts: AlertItem[];
+  // email di invio (Resend, dominio verificato)
+  sendingEmail?: string;
+  sendingFromName?: string;
+  sendingDomain?: string;
+  emailVerified?: boolean;
   waNumber: WaNumber | null; // numero WhatsApp assegnato (derivato, non persistito sul profilo)
+}
+
+export interface EmailDnsRecord {
+  record: string;
+  name: string;
+  type: string;
+  value: string;
+  status?: string;
+  ttl?: string;
+  priority?: number;
 }
 
 const emptyMeters = (): Record<MeterKey, Meter> => ({
@@ -465,6 +480,10 @@ function rowToUser(r: any): User {
     campaigns: Array.isArray(r.campaigns) ? (r.campaigns as Campaign[]) : [],
     leads: Array.isArray(r.leads) ? (r.leads as Lead[]) : [],
     alerts: Array.isArray(r.alerts) ? (r.alerts as AlertItem[]) : [],
+    sendingEmail: r.sending_email ?? '',
+    sendingFromName: r.sending_from_name ?? '',
+    sendingDomain: r.sending_domain ?? '',
+    emailVerified: !!r.email_verified,
     waNumber: null, // caricato separatamente da loadWaNumber (RLS su wa_numbers)
   };
 }
@@ -589,6 +608,27 @@ interface StoreCtx {
   }>;
   draftWhatsApp: (contact: string, recent: { direction: string; body: string }[]) => Promise<string>;
   setWaAutoreply: (on: boolean) => void;
+  emailDomainStatus: () => Promise<{
+    ok: boolean;
+    sendingEmail?: string | null;
+    status?: string;
+    verified?: boolean;
+    records?: EmailDnsRecord[];
+    domain?: string | null;
+    error?: string;
+  }>;
+  setupSendingEmail: (
+    email: string,
+    fromName?: string
+  ) => Promise<{ ok: boolean; status?: string; verified?: boolean; records?: EmailDnsRecord[]; error?: string }>;
+  verifySendingDomain: () => Promise<{
+    ok: boolean;
+    status?: string;
+    verified?: boolean;
+    records?: EmailDnsRecord[];
+    error?: string;
+  }>;
+  sendLeadEmail: (to: string, subject: string, body: string) => Promise<{ ok: boolean; id?: string; error?: string }>;
   generateCampaignBrief: (input?: {
     objective?: string;
     budgetDaily?: number;
@@ -1697,6 +1737,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         updateLead(id, { lastTouch: Date.now(), ...memPatch });
       }
 
+      // Invio autonomo: se l'AI ha scelto il canale email, l'autonomia è 'auto',
+      // il dominio è verificato e il lead ha un'email → invia davvero via Resend.
+      if (channel === 'email' && u.crmAutonomy === 'auto' && u.emailVerified && lead.email && message) {
+        try {
+          const t2 = (await supabase.auth.getSession()).data.session?.access_token;
+          await fetch('/api/email/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...(t2 ? { Authorization: `Bearer ${t2}` } : {}) },
+            body: JSON.stringify({ to: lead.email, subject: emailSubject || 'Un aggiornamento', text: message }),
+          });
+        } catch {
+          /* invio best-effort */
+        }
+      }
+
       return {
         ok: true,
         result: { automation, channel, summary, emailSubject, message, appointment, newStatus, mode: u.crmAutonomy },
@@ -1887,6 +1942,97 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const setWaAutoreply: StoreCtx['setWaAutoreply'] = (on) => {
     mutateUser((u) => ({ ...u, waAutoreply: on }));
+  };
+
+  async function authTok(): Promise<string | undefined> {
+    return (await supabase.auth.getSession()).data.session?.access_token;
+  }
+
+  const emailDomainStatus: StoreCtx['emailDomainStatus'] = async () => {
+    try {
+      const token = await authTok();
+      const res = await fetch('/api/email/domain', {
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      });
+      const data = await res.json();
+      if (!res.ok) return { ok: false, error: String(data?.error || `HTTP ${res.status}`) };
+      return {
+        ok: true,
+        sendingEmail: data?.sendingEmail ?? null,
+        status: String(data?.status || ''),
+        verified: !!data?.verified,
+        records: Array.isArray(data?.records) ? (data.records as EmailDnsRecord[]) : [],
+        domain: data?.domain ?? null,
+      };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  };
+
+  const setupSendingEmail: StoreCtx['setupSendingEmail'] = async (email, fromName) => {
+    try {
+      const token = await authTok();
+      const res = await fetch('/api/email/domain', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ action: 'setup', email, fromName: fromName || '' }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { ok: false, error: String(data?.error || `HTTP ${res.status}`) };
+      mutateUser((u) => ({
+        ...u,
+        sendingEmail: String(data?.sendingEmail || email),
+        sendingFromName: fromName || u.sendingFromName || '',
+        sendingDomain: String(data?.domain || email.split('@')[1] || ''),
+        emailVerified: !!data?.verified,
+      }));
+      return {
+        ok: true,
+        status: String(data?.status || ''),
+        verified: !!data?.verified,
+        records: Array.isArray(data?.records) ? (data.records as EmailDnsRecord[]) : [],
+      };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  };
+
+  const verifySendingDomain: StoreCtx['verifySendingDomain'] = async () => {
+    try {
+      const token = await authTok();
+      const res = await fetch('/api/email/domain', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ action: 'verify' }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { ok: false, error: String(data?.error || `HTTP ${res.status}`) };
+      mutateUser((u) => ({ ...u, emailVerified: !!data?.verified }));
+      return {
+        ok: true,
+        status: String(data?.status || ''),
+        verified: !!data?.verified,
+        records: Array.isArray(data?.records) ? (data.records as EmailDnsRecord[]) : [],
+      };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  };
+
+  const sendLeadEmail: StoreCtx['sendLeadEmail'] = async (to, subject, body) => {
+    try {
+      const token = await authTok();
+      const res = await fetch('/api/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ to, subject, text: body }),
+      });
+      const data = await res.json();
+      if (!res.ok) return { ok: false, error: String(data?.error || `HTTP ${res.status}`) };
+      return { ok: true, id: String(data?.id || '') };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
   };
 
   const generateCampaignBrief: StoreCtx['generateCampaignBrief'] = async (input) => {
@@ -2130,6 +2276,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     sendWhatsApp,
     draftWhatsApp,
     setWaAutoreply,
+    emailDomainStatus,
+    setupSendingEmail,
+    verifySendingDomain,
+    sendLeadEmail,
     markAlertsRead,
     resetAll,
   };
