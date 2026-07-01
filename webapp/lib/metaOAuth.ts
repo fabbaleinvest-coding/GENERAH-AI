@@ -35,6 +35,16 @@ export function metaAppConfigured(): boolean {
   return !!(process.env.META_APP_ID && process.env.META_APP_SECRET);
 }
 
+// Fallback sulle credenziali da env (account "house" del proprietario) per gli
+// utenti che non hanno ancora collegato il proprio Meta. DISATTIVATO per
+// impostazione predefinita: ogni utente — incluso il proprietario in demo —
+// collega il proprio account via OAuth e la sua connessione (cifrata) viene
+// usata a runtime. Riattivabile solo con META_ALLOW_ENV_FALLBACK=true.
+export function metaEnvFallbackEnabled(): boolean {
+  const v = (process.env.META_ALLOW_ENV_FALLBACK || '').trim().toLowerCase();
+  return v === 'true' || v === '1' || v === 'yes';
+}
+
 // URI di callback OAuth: env esplicito se presente, altrimenti dedotto dall'host
 // della richiesta (deve combaciare ESATTAMENTE con quello whitelistato su Meta).
 export function oauthRedirectUri(req: Request): string {
@@ -358,8 +368,11 @@ export async function connectionByUserId(userId: string): Promise<MetaConfig | n
   }
 }
 
-// Risolve la MetaConfig da usare per le chiamate ads: prima la connessione
-// per-utente (decifrata), poi il fallback via env. Null se nessuna delle due.
+// Risolve la MetaConfig da usare per le chiamate ads: SEMPRE la connessione
+// per-utente (decifrata) se presente. Se l'utente non ha collegato Meta, si
+// ricade sulle credenziali da env SOLO quando META_ALLOW_ENV_FALLBACK=true;
+// altrimenti null → l'utente (proprietario incluso) deve collegare il proprio
+// account via OAuth, anche in demo.
 export async function resolveMetaConfig(userToken: string): Promise<MetaConfig | null> {
   try {
     const row = await readRow(userToken);
@@ -374,9 +387,9 @@ export async function resolveMetaConfig(userToken: string): Promise<MetaConfig |
       };
     }
   } catch {
-    // tabella assente / errore di lettura → fallback env
+    // tabella assente / errore di lettura → eventuale fallback env sotto
   }
-  return metaEnvConfig();
+  return metaEnvFallbackEnabled() ? metaEnvConfig() : null;
 }
 
 // Orchestratore lato exchange: code → token → long-lived → asset → salvataggio.
