@@ -13,6 +13,7 @@ import {
 import { retrieveContextForUser, formatContext } from '@/lib/retrieve';
 import { agentGoalsDirective, leadMemoryBlock, SECTOR_LABEL, type AgentGoal, type SectorKind } from '@/lib/crm';
 import { observeCall } from '@/lib/callMemory';
+import { calendarConnected, type CalProfile } from '@/lib/calendar';
 import { waitUntil } from '@vercel/functions';
 
 export const runtime = 'nodejs';
@@ -84,10 +85,13 @@ export async function POST(req: Request) {
 
     const { data: prof } = await svc
       .from('profiles')
-      .select('nome, settore, kb, meters, agent_goals, sector_kind')
+      .select(
+        'nome, settore, kb, meters, agent_goals, sector_kind, calendar_provider, calcom_api_key, calcom_event_type_id, calcom_booking_url, google_refresh_token, google_calendar_id, booking_timezone',
+      )
       .eq('id', ownerId)
       .maybeSingle();
     const p = (prof as ProfileRow | null) || {};
+    const bookingEnabled = calendarConnected((prof as CalProfile | null) || null);
     const phone = p.meters?.phone || { total: 0, used: 0 };
     const remaining = Math.max(0, Number(phone.total || 0) - Number(phone.used || 0));
     if (remaining <= 0) {
@@ -141,7 +145,7 @@ export async function POST(req: Request) {
         });
       }
     }
-    const instructions = buildPhonePrompt({ nome: String(p.nome || ''), settore, kbFiles, ragContext, goalDirective, memoryBlock });
+    const instructions = buildPhonePrompt({ nome: String(p.nome || ''), settore, kbFiles, ragContext, goalDirective, memoryBlock, bookingEnabled });
 
     try {
       await acceptCall(callId, buildAcceptSession(instructions));

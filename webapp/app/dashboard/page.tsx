@@ -27,6 +27,7 @@ import { MeterBar } from '@/components/Meters';
 import { TopUpModal } from '@/components/TopUpModal';
 import { Container, Button, Badge, Photo, Spinner, cx } from '@/components/ui';
 import VideoConsult from '@/components/VideoConsult';
+import VideoAvatarSettings from '@/components/VideoAvatarSettings';
 import { IMG } from '@/lib/images';
 
 type Tab = 'overview' | 'leads' | 'calendario' | 'whatsapp' | 'campaigns' | 'social' | 'video' | 'kb' | 'account';
@@ -1330,6 +1331,8 @@ function VideoView({ onTopUp }: { onTopUp: (m: MeterKey) => void }) {
           </div>
         </div>
       )}
+
+      {!active && <VideoAvatarSettings />}
     </div>
   );
 }

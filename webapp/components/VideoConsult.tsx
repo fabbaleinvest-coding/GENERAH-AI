@@ -67,10 +67,28 @@ export interface VideoConsultProps {
   maxMinutes: number;
   /** chiamato a fine consulto con i minuti effettivamente usati (arrotondati per eccesso) */
   onEnded?: (minutesUsed: number) => void;
+  /** MODALITÀ PUBBLICA: slug del business (pagina /c/[slug]). Se presente, la
+   *  sessione realtime è ancorata al business dell'utente (niente bearer). */
+  publicSlug?: string;
+  /** id del lead creato dal form pubblico (per il recap/booking) */
+  publicLeadId?: string;
+  /** nome del visitatore (per personalizzare il saluto lato pubblico) */
+  guestName?: string;
+  /** a fine consulto pubblico riceve la trascrizione (per il recap Opus lato CRM) */
+  onTranscript?: (turns: { role: 'user' | 'assistant'; text: string }[]) => void;
 }
 
-export default function VideoConsult({ mode, maxMinutes, onEnded }: VideoConsultProps) {
+export default function VideoConsult({
+  mode,
+  maxMinutes,
+  onEnded,
+  publicSlug,
+  publicLeadId,
+  guestName,
+  onTranscript,
+}: VideoConsultProps) {
   const { user } = useStore();
+  const isPublic = !!publicSlug;
 
   const [phase, setPhase] = useState<Phase>('idle');
   const [oaiReady, setOaiReady] = useState(false);
@@ -120,6 +138,14 @@ export default function VideoConsult({ mode, maxMinutes, onEnded }: VideoConsult
   const onEndedRef = useRef<typeof onEnded>(onEnded);
   onEndedRef.current = onEnded;
   const maxSeconds = Math.max(1, Math.round(maxMinutes * 60));
+
+  // Modalità pubblica: booking abilitato (comunicato dal server) + trascrizione
+  // accumulata per il recap Opus lato CRM a fine consulto.
+  const canBookRef = useRef<boolean>(false);
+  const onTranscriptRef = useRef<typeof onTranscript>(onTranscript);
+  onTranscriptRef.current = onTranscript;
+  const messagesRef = useRef<Msg[]>([]);
+  messagesRef.current = messages;
 
   useEffect(() => () => cleanup(), []);
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }); }, [messages, livePartial]);
@@ -270,21 +296,27 @@ export default function VideoConsult({ mode, maxMinutes, onEnded }: VideoConsult
   }
 
   async function startOpenAI() {
-    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    // Modalità pubblica: nessun bearer (il visitatore non è loggato); il server
+    // risolve il business dallo slug. Modalità admin: bearer dell'utente + KB.
+    const token = isPublic ? '' : (await supabase.auth.getSession()).data.session?.access_token;
     const r = await fetch('/api/realtime-session', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify({
-        nome: user?.nome || '',
-        settore: user?.settore || '',
-        agentGoals: user?.agentGoals ?? [],
-        sectorKind: user?.sectorKind ?? null,
-        kbFiles: (user?.kb || []).map((f) => f.name),
-        minutes: maxMinutes,
-      }),
+      body: JSON.stringify(
+        isPublic
+          ? { slug: publicSlug, nome: guestName || '', minutes: maxMinutes }
+          : {
+              nome: user?.nome || '',
+              settore: user?.settore || '',
+              agentGoals: user?.agentGoals ?? [],
+              sectorKind: user?.sectorKind ?? null,
+              kbFiles: (user?.kb || []).map((f) => f.name),
+              minutes: maxMinutes,
+            },
+      ),
     });
     const s = await r.json().catch(() => ({} as any));
     if (!r.ok || !s?.value) {
@@ -292,6 +324,7 @@ export default function VideoConsult({ mode, maxMinutes, onEnded }: VideoConsult
       if (/mancante \(env\)/i.test(errStr)) { setNeedsConfig(true); }
       throw new Error('OpenAI: ' + errStr);
     }
+    canBookRef.current = !!s.bookingEnabled;
     const EPHEMERAL = s.value; const model = s.model || 'gpt-realtime'; const voice = s.voice || 'marin';
 
     await new Promise<void>((resolve, reject) => {
@@ -377,7 +410,38 @@ export default function VideoConsult({ mode, maxMinutes, onEnded }: VideoConsult
       setTimeout(() => stop(), 1400);
       return;
     }
+    if (name === 'fissa_appuntamento') { bookAppointmentTool(callId, _argsStr); return; }
     if (callId) wsSend({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: callId, output: '{}' } });
+    requestResponse();
+  }
+
+  // Prenotazione appuntamento dal consulto pubblico: chiama la route pubblica che
+  // prenota sul calendario collegato dell'utente (cal.com/Google) + CRM.
+  async function bookAppointmentTool(callId?: string, argsStr?: string) {
+    let out = '{"ok":false}';
+    try {
+      const args = argsStr ? JSON.parse(argsStr) : {};
+      if (isPublic && publicSlug && args?.startsAt) {
+        const res = await fetch('/api/public/consult/book', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            slug: publicSlug,
+            leadId: publicLeadId || null,
+            startsAt: String(args.startsAt),
+            nome: String(args.nome || guestName || ''),
+            email: String(args.email || ''),
+            telefono: String(args.telefono || ''),
+            notes: String(args.note || ''),
+          }),
+        });
+        const j = await res.json().catch(() => ({} as any));
+        out = JSON.stringify({ ok: !!j?.ok, booked: !!j?.booked, error: j?.error });
+      }
+    } catch {
+      out = '{"ok":false}';
+    }
+    if (callId) wsSend({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: callId, output: out } });
     requestResponse();
   }
 
@@ -402,6 +466,17 @@ export default function VideoConsult({ mode, maxMinutes, onEnded }: VideoConsult
     endedFiredRef.current = true;
     const used = Math.min(maxMinutes, Math.ceil(elapsedRef.current / 60));
     try { onEndedRef.current?.(used); } catch {}
+    // Consulto pubblico: consegna la trascrizione per il recap Opus lato CRM.
+    if (isPublic) {
+      try {
+        const turns = (messagesRef.current || [])
+          .filter((m) => (m.role === 'user' || m.role === 'assistant') && String(m.text || '').trim())
+          .map((m) => ({ role: m.role as 'user' | 'assistant', text: String(m.text).trim() }));
+        onTranscriptRef.current?.(turns);
+      } catch {
+        /* best-effort */
+      }
+    }
   }
 
   async function start() {

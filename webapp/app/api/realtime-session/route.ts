@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
-import { retrieveContext, formatContext } from '@/lib/retrieve';
+import { retrieveContext, retrieveContextForUser, formatContext } from '@/lib/retrieve';
 import { agentGoalsDirective, SECTOR_LABEL, type AgentGoal, type SectorKind } from '@/lib/crm';
+import { profileBySlug } from '@/lib/consult';
+import { calendarConnected } from '@/lib/calendar';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,6 +44,27 @@ const END_CALL_TOOL = {
   parameters: { type: 'object', properties: {}, required: [] },
 };
 
+// Fissa un appuntamento sul calendario collegato (cal.com/Google). Esposto SOLO
+// quando l'azienda ha un calendario collegato; il frontend intercetta la call e
+// prenota via /api/public/consult/book.
+const BOOK_TOOL = {
+  type: 'function',
+  name: 'fissa_appuntamento',
+  description:
+    "Fissa un appuntamento sul calendario dell'azienda quando l'interlocutore accetta una data/ora precisa. Prima proponi 2-3 slot, poi chiama questo strumento con la data/ora scelta in ISO 8601.",
+  parameters: {
+    type: 'object',
+    properties: {
+      startsAt: { type: 'string', description: 'Data e ora di inizio in ISO 8601, es. 2026-07-10T15:00:00+02:00' },
+      nome: { type: 'string', description: "Nome dell'interlocutore" },
+      email: { type: 'string', description: 'Email (se disponibile)' },
+      telefono: { type: 'string', description: 'Telefono (se disponibile)' },
+      note: { type: 'string', description: 'Motivo/nota breve' },
+    },
+    required: ['startsAt'],
+  },
+};
+
 type Body = {
   nome?: string;
   settore?: string;
@@ -49,6 +72,7 @@ type Body = {
   sectorKind?: string;
   kbFiles?: string[];
   minutes?: number;
+  slug?: string;
 };
 
 function buildSalesPrompt(
@@ -110,28 +134,54 @@ async function createToken(body: Body, token: string) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return NextResponse.json({ error: 'OPENAI_API_KEY mancante (env)' }, { status: 500 });
 
-  const name = (body.nome || '').trim() || "l'interlocutore";
   const minutes = Math.max(1, Math.min(60, Math.round(body.minutes || 5)));
   const model = process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime';
   const voice = process.env.OPENAI_REALTIME_VOICE || 'marin';
   const effort = (process.env.OPENAI_REALTIME_EFFORT || 'low').trim().toLowerCase();
 
-  // RAG: porta nell'avatar i contenuti reali della knowledge base. Query ampia
-  // sul profilo del business; cap di lunghezza per non gonfiare le istruzioni.
-  const ragQuery =
-    `prodotti servizi prezzi offerta punti di forza clienti FAQ tono di voce dell'azienda ${(body.settore || '').trim()}`.trim();
-  const ragChunks = token ? await retrieveContext(token, ragQuery, 10) : [];
-  const ragContext = formatContext(ragChunks, 6000);
+  // Modalità PUBBLICA: se arriva uno slug, il consulto è ancorato al business
+  // dell'utente proprietario (individuato dallo slug), non alla sessione admin.
+  // La KB via RAG usa il service-role (retrieveContextForUser) e — se l'azienda
+  // ha un calendario collegato — si espone lo strumento di prenotazione.
+  const slug = (body.slug || '').trim();
+  let name = (body.nome || '').trim() || "l'interlocutore";
+  let settore = (body.settore || '').trim();
+  let agentGoals: AgentGoal[] = Array.isArray(body.agentGoals) ? (body.agentGoals as AgentGoal[]) : [];
+  let sectorKind: SectorKind | null = body.sectorKind ? (body.sectorKind as SectorKind) : null;
+  let ragContext = '';
+  let bookingEnabled = false;
 
-  const goalDirective = agentGoalsDirective(
-    (Array.isArray(body.agentGoals) ? body.agentGoals : []) as AgentGoal[],
-    body.sectorKind ? SECTOR_LABEL[body.sectorKind as SectorKind] : null
-  );
-  const instructions = buildSalesPrompt(name, body.settore || '', body.kbFiles || [], minutes, ragContext, goalDirective);
+  if (slug) {
+    const prof = await profileBySlug(slug);
+    if (!prof) return NextResponse.json({ error: 'consulto non disponibile' }, { status: 404 });
+    name = [prof.nome, prof.cognome].filter(Boolean).join(' ').trim() || name;
+    settore = String(prof.settore || settore);
+    agentGoals = Array.isArray(prof.agent_goals) ? (prof.agent_goals as AgentGoal[]) : [];
+    sectorKind = (prof.sector_kind || null) as SectorKind | null;
+    bookingEnabled = calendarConnected(prof);
+    const ragQuery =
+      `prodotti servizi prezzi offerta punti di forza clienti FAQ tono di voce dell'azienda ${settore}`.trim();
+    try {
+      const chunks = await retrieveContextForUser(prof.id, ragQuery, 10);
+      ragContext = formatContext(chunks, 6000);
+    } catch {
+      /* fallback ai nomi file */
+    }
+  } else {
+    // Modalità ADMIN (demo in dashboard/onboarding): RAG via bearer dell'utente.
+    const ragQuery =
+      `prodotti servizi prezzi offerta punti di forza clienti FAQ tono di voce dell'azienda ${settore}`.trim();
+    const ragChunks = token ? await retrieveContext(token, ragQuery, 10) : [];
+    ragContext = formatContext(ragChunks, 6000);
+  }
+
+  const goalDirective = agentGoalsDirective(agentGoals, sectorKind ? SECTOR_LABEL[sectorKind] : null);
+  const instructions = buildSalesPrompt(name, settore, body.kbFiles || [], minutes, ragContext, goalDirective);
   const greeting =
     `Buongiorno ${name}, sono il consulente AI di GENERAH AI. In pochi minuti le mostro come posso acquisire e convertire i suoi contatti, senza sosta. Mi dica: oggi come gestite chi vi contatta?`;
 
   const tools: any[] = [VISUAL_TOOL, END_CALL_TOOL];
+  if (bookingEnabled) tools.push(BOOK_TOOL);
 
   const session: Record<string, any> = {
     type: 'realtime',
@@ -154,7 +204,7 @@ async function createToken(body: Body, token: string) {
     const data = await res.json();
     if (!res.ok) return NextResponse.json({ error: data?.error || data }, { status: 500 });
     const value = data?.value || data?.client_secret?.value || null;
-    return NextResponse.json({ value, model, voice, greeting, expires_at: data?.expires_at || null });
+    return NextResponse.json({ value, model, voice, greeting, bookingEnabled, expires_at: data?.expires_at || null });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }

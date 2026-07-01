@@ -10,6 +10,8 @@ import {
 } from '@/lib/whatsapp';
 import { retrieveContextForUser, formatContext } from '@/lib/retrieve';
 import { generateWaReply } from '@/lib/waReply';
+import { bookForUser } from '@/lib/consult';
+import { calendarConnected, type CalProfile } from '@/lib/calendar';
 import { agentGoalsDirective, leadMemoryBlock, SECTOR_LABEL, type AgentGoal, type SectorKind } from '@/lib/crm';
 
 export const runtime = 'nodejs';
@@ -128,11 +130,26 @@ async function maybeAutoReply(
 
   const { data: prof } = await db
     .from('profiles')
-    .select('wa_autoreply, nome, settore, kb, agent_goals, sector_kind')
+    .select(
+      'wa_autoreply, nome, settore, kb, agent_goals, sector_kind, calendar_provider, calcom_api_key, calcom_event_type_id, calcom_booking_url, google_refresh_token, google_calendar_id, booking_timezone',
+    )
     .eq('id', ctx.userId)
     .maybeSingle();
-  const p = prof as { wa_autoreply?: boolean; nome?: string; settore?: string; kb?: { name?: string }[]; agent_goals?: AgentGoal[]; sector_kind?: string } | null;
+  const p = prof as
+    | {
+        wa_autoreply?: boolean;
+        nome?: string;
+        settore?: string;
+        kb?: { name?: string }[];
+        agent_goals?: AgentGoal[];
+        sector_kind?: string;
+      }
+    | null;
   if (!p || p.wa_autoreply === false) return; // auto-reply disattivato
+
+  const cal = (prof as CalProfile | null) || null;
+  const bookingEnabled = calendarConnected(cal);
+  const timezone = String((cal?.booking_timezone as string) || 'Europe/Rome');
 
   // Storico recente con questo contatto (per dare contesto alla risposta).
   const { data: hist } = await db
@@ -172,16 +189,18 @@ async function maybeAutoReply(
   const leadId = `wa_${ctx.userId}_${ctx.contact}`;
   const { data: leadRow } = await db
     .from('leads')
-    .select('deal_stage, progress_summary')
+    .select('deal_stage, progress_summary, name, email, phone')
     .eq('id', leadId)
     .maybeSingle();
-  const lr = leadRow as { deal_stage?: string; progress_summary?: string } | null;
+  const lr = leadRow as
+    | { deal_stage?: string; progress_summary?: string; name?: string; email?: string; phone?: string }
+    | null;
   const memoryBlock = leadMemoryBlock({
     dealStage: lr?.deal_stage || null,
     progressSummary: lr?.progress_summary || null,
   });
 
-  const { reply, progressSummary } = await generateWaReply({
+  const { reply, progressSummary, booking } = await generateWaReply({
     history,
     nome: String(p.nome || ''),
     settore: String(p.settore || ''),
@@ -189,6 +208,9 @@ async function maybeAutoReply(
     ragContext,
     goalDirective,
     memoryBlock,
+    bookingEnabled,
+    nowISO: new Date().toISOString(),
+    timezone,
     timeoutMs: 12000,
   });
   if (!reply) return;
@@ -217,6 +239,23 @@ async function maybeAutoReply(
     const memUpdate: Record<string, unknown> = { last_interaction_at: new Date().toISOString() };
     if (progressSummary) memUpdate.progress_summary = progressSummary;
     await db.from('leads').update(memUpdate).eq('id', leadId);
+
+    // Appuntamento concordato: prenota sul calendario collegato dell'utente
+    // (cal.com/Google) e registra appuntamento + evento in timeline. Best-effort.
+    if (booking?.startsAt && bookingEnabled && cal) {
+      try {
+        await bookForUser(ctx.userId, cal, {
+          startsAt: booking.startsAt,
+          name: String(lr?.name || ctx.contact),
+          email: String(lr?.email || ''),
+          phone: String(lr?.phone || ctx.contact),
+          notes: booking.notes,
+          leadId,
+        });
+      } catch {
+        /* best-effort */
+      }
+    }
   } catch {
     /* invio fallito: si prosegue */
   }

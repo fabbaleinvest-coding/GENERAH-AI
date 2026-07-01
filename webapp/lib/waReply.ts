@@ -22,6 +22,7 @@ export interface WaHistoryItem {
 export interface WaReplyResult {
   reply: string; // testo della prossima risposta ('' = non inviare)
   progressSummary: string; // riepilogo aggiornato della trattativa ('' = invariato)
+  booking: { startsAt: string; notes?: string } | null; // appuntamento da fissare, se concordato
 }
 
 // Estrae il primo oggetto JSON valido dal testo del modello (tollerante a
@@ -53,9 +54,12 @@ export async function generateWaReply(opts: {
   ragContext?: string;
   goalDirective?: string;
   memoryBlock?: string;
+  bookingEnabled?: boolean;
+  nowISO?: string;
+  timezone?: string;
   timeoutMs?: number;
 }): Promise<WaReplyResult> {
-  const empty: WaReplyResult = { reply: '', progressSummary: '' };
+  const empty: WaReplyResult = { reply: '', progressSummary: '', booking: null };
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return empty;
 
@@ -74,9 +78,18 @@ export async function generateWaReply(opts: {
     .join('\n');
 
   const memBlock = opts.memoryBlock ? `${opts.memoryBlock}\n\n` : '';
+  const nowISO = opts.nowISO || new Date().toISOString();
+  const tz = opts.timezone || 'Europe/Rome';
+  const bookingBlock = opts.bookingEnabled
+    ? `L'azienda ha un calendario collegato: puoi FISSARE un appuntamento. Adesso è ${nowISO} (timezone ${tz}). Quando l'interlocutore accetta una data/ora precisa, includi nel JSON il campo "booking" con l'orario di inizio in ISO 8601; altrimenti lascia "booking": null. Proponi 2-3 fasce prima di fissare.\n\n`
+    : '';
+
+  const bookingField = opts.bookingEnabled
+    ? `,\n  "booking": <null oppure { "startsAt": "<data/ora ISO 8601 dell'appuntamento concordato>", "notes": "<nota breve>" }>`
+    : '';
 
   const prompt = `Azienda di ${nome || 'un imprenditore'}, settore: ${settore || 'non specificato'}.
-${kbBlock}${opts.goalDirective ? `${opts.goalDirective}\n\n` : ''}${memBlock}Conversazione WhatsApp in corso (Cliente = l'interlocutore, Noi = l'azienda):
+${kbBlock}${opts.goalDirective ? `${opts.goalDirective}\n\n` : ''}${memBlock}${bookingBlock}Conversazione WhatsApp in corso (Cliente = l'interlocutore, Noi = l'azienda):
 ${transcript || '(primo contatto)'}
 
 Scrivi la PROSSIMA risposta WhatsApp dell'azienda: breve (1-3 frasi), cordiale, diretta, in italiano. Riprendi dal punto raggiunto nella trattativa — non ripetere ciò che è già stato detto o inviato — e falla avanzare verso il passo successivo (informazione utile, domanda di qualifica, proposta di appuntamento). Nel testo del messaggio niente markdown, niente firma, niente virgolette.
@@ -84,7 +97,7 @@ Scrivi la PROSSIMA risposta WhatsApp dell'azienda: breve (1-3 frasi), cordiale, 
 Rispondi SOLO con un oggetto JSON valido, senza markdown, in questo formato:
 {
   "reply": "<il testo del messaggio WhatsApp da inviare>",
-  "progressSummary": "<riepilogo AGGIORNATO e conciso (max 3-4 frasi) della trattativa finora: cosa è stato detto/inviato, obiezioni emerse, impegni presi, e da dove ripartire la prossima volta>"
+  "progressSummary": "<riepilogo AGGIORNATO e conciso (max 3-4 frasi) della trattativa finora: cosa è stato detto/inviato, obiezioni emerse, impegni presi, e da dove ripartire la prossima volta>"${bookingField}
 }`;
 
   const model = process.env.ANTHROPIC_MODEL || 'claude-opus-4-8';
@@ -114,13 +127,19 @@ Rispondi SOLO con un oggetto JSON valido, senza markdown, in questo formato:
       : '';
     const parsed = parseJson(text);
     if (parsed && typeof parsed === 'object') {
+      let booking: { startsAt: string; notes?: string } | null = null;
+      const b = (parsed as { booking?: unknown }).booking as { startsAt?: unknown; notes?: unknown } | null;
+      if (b && typeof b === 'object' && b.startsAt) {
+        booking = { startsAt: String(b.startsAt), notes: b.notes ? String(b.notes) : undefined };
+      }
       return {
         reply: String(parsed.reply || '').trim(),
         progressSummary: String(parsed.progressSummary || '').trim(),
+        booking,
       };
     }
     // Fallback: il modello non ha rispettato il JSON → usa il testo come reply.
-    return { reply: text, progressSummary: '' };
+    return { reply: text, progressSummary: '', booking: null };
   } catch {
     return empty;
   } finally {

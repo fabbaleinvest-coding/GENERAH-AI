@@ -130,6 +130,7 @@ export function buildPhonePrompt(opts: {
   ragContext?: string;
   goalDirective?: string;
   memoryBlock?: string;
+  bookingEnabled?: boolean;
 }): string {
   const sector = (opts.settore || '').trim() || 'la sua attività';
   const docs = (opts.kbFiles || []).filter(Boolean);
@@ -153,7 +154,7 @@ Usa SEMPRE questi contenuti come verità su offerta, prezzi e tono. Se manca un 
 - Niente promesse di risultati garantiti; parla di metodo e probabilità.
 - Resta nel perimetro del business; niente consulenze regolamentate (legali, mediche, finanziarie).
 - Se la richiesta è fuori ambito, riportala con gentilezza al business.
-
+${opts.bookingEnabled ? `\n# APPUNTAMENTI\nL'azienda ha un calendario collegato: se emerge interesse concreto, proponi 2-3 fasce orarie e, quando l'interlocutore accetta una data/ora precisa, conferma che fisserai l'appuntamento. Raccogli nome e un recapito (email o telefono) per la conferma.\n` : ''}
 # CHIUSURA
 Prima di chiudere, riepiloga il prossimo passo concordato e saluta con cortesia.`;
 }

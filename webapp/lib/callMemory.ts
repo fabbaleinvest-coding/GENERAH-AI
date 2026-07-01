@@ -2,6 +2,8 @@ import WebSocket from 'ws';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { retrieveContextForUser, formatContext } from '@/lib/retrieve';
 import { leadMemoryBlock, DEAL_STAGE_LIST, addLeadEvent } from '@/lib/crm';
+import { bookForUser } from '@/lib/consult';
+import { calendarConnected, type CalProfile } from '@/lib/calendar';
 
 // ───────────────────────────────────────────────────────────────────────────
 //  GENERAH AI · Memoria delle telefonate (OpenAI Realtime via SIP/DIDWW).
@@ -129,32 +131,58 @@ export async function finalizeCallMemory(
   let leadId = input.callerLeadId;
   let priorStage: string | null = null;
   let priorSummary: string | null = null;
+  let leadName = '';
+  let leadEmail = '';
+  let leadPhone = input.fromE164 || '';
   if (leadId) {
-    const { data } = await svc.from('leads').select('deal_stage, progress_summary').eq('id', leadId).maybeSingle();
-    const row = data as { deal_stage?: string; progress_summary?: string } | null;
+    const { data } = await svc
+      .from('leads')
+      .select('deal_stage, progress_summary, name, email, phone')
+      .eq('id', leadId)
+      .maybeSingle();
+    const row = data as
+      | { deal_stage?: string; progress_summary?: string; name?: string; email?: string; phone?: string }
+      | null;
     priorStage = row?.deal_stage || null;
     priorSummary = row?.progress_summary || null;
+    leadName = String(row?.name || '');
+    leadEmail = String(row?.email || '');
+    leadPhone = String(row?.phone || leadPhone);
   } else if (input.fromE164) {
     const { data } = await svc
       .from('leads')
-      .select('id, deal_stage, progress_summary')
+      .select('id, deal_stage, progress_summary, name, email, phone')
       .eq('user_id', input.ownerId)
       .eq('phone', input.fromE164)
       .order('last_touch', { ascending: false })
       .limit(1)
       .maybeSingle();
-    const row = data as { id?: string; deal_stage?: string; progress_summary?: string } | null;
+    const row = data as
+      | { id?: string; deal_stage?: string; progress_summary?: string; name?: string; email?: string; phone?: string }
+      | null;
     if (row?.id) {
       leadId = row.id;
       priorStage = row.deal_stage || null;
       priorSummary = row.progress_summary || null;
+      leadName = String(row.name || '');
+      leadEmail = String(row.email || '');
+      leadPhone = String(row.phone || leadPhone);
     }
   }
   if (!leadId) return null;
 
   // Contesto: profilo + KB via RAG service-role, ancorato alla trascrizione.
-  const { data: prof } = await svc.from('profiles').select('nome, settore').eq('id', input.ownerId).maybeSingle();
+  const { data: prof } = await svc
+    .from('profiles')
+    .select(
+      'nome, settore, calendar_provider, calcom_api_key, calcom_event_type_id, calcom_booking_url, google_refresh_token, google_calendar_id, booking_timezone',
+    )
+    .eq('id', input.ownerId)
+    .maybeSingle();
   const p = prof as { nome?: string; settore?: string } | null;
+  const cal = (prof as CalProfile | null) || null;
+  const bookingEnabled = calendarConnected(cal);
+  const timezone = String((cal?.booking_timezone as string) || 'Europe/Rome');
   const settore = String(p?.settore || '');
   const transcriptText = transcript
     .map((t) => `${t.role === 'user' ? 'Cliente' : 'Agente'}: ${t.text.trim()}`)
@@ -173,6 +201,9 @@ export async function finalizeCallMemory(
     transcriptText,
     ragContext,
     memoryBlock: leadMemoryBlock({ dealStage: priorStage, progressSummary: priorSummary }),
+    bookingEnabled,
+    nowISO: new Date().toISOString(),
+    timezone,
   });
   if (!summary) return null;
 
@@ -202,6 +233,23 @@ export async function finalizeCallMemory(
     /* best-effort */
   }
 
+  // Appuntamento concordato durante la chiamata: prenota sul calendario collegato
+  // dell'utente (cal.com/Google) + appuntamento e timeline. Best-effort.
+  if (summary.booking?.startsAt && bookingEnabled && cal) {
+    try {
+      await bookForUser(input.ownerId, cal, {
+        startsAt: summary.booking.startsAt,
+        name: leadName || 'Contatto',
+        email: leadEmail,
+        phone: leadPhone,
+        notes: summary.booking.notes,
+        leadId,
+      });
+    } catch {
+      /* best-effort */
+    }
+  }
+
   return { progressSummary: summary.progressSummary, dealStage: stage };
 }
 
@@ -212,23 +260,32 @@ async function summarizeCall(opts: {
   transcriptText: string;
   ragContext: string;
   memoryBlock: string;
-}): Promise<{ progressSummary: string; dealStage: string } | null> {
+  bookingEnabled?: boolean;
+  nowISO?: string;
+  timezone?: string;
+}): Promise<{ progressSummary: string; dealStage: string; booking: { startsAt: string; notes?: string } | null } | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
 
   const kbBlock = opts.ragContext
     ? `Estratti dalla knowledge base (verità su offerta, prezzi, tono):\n\n${opts.ragContext}\n\n`
     : '';
+  const bookingBlock = opts.bookingEnabled
+    ? `\nL'azienda ha un calendario collegato. Adesso è ${opts.nowISO || new Date().toISOString()} (timezone ${opts.timezone || 'Europe/Rome'}). Se durante la chiamata è stato concordato un appuntamento con data/ora precisa, includi nel JSON il campo "booking" con l'orario di inizio in ISO 8601; altrimenti "booking": null.\n`
+    : '';
+  const bookingField = opts.bookingEnabled
+    ? `,\n  "booking": <null oppure { "startsAt": "<data/ora ISO 8601>", "notes": "<nota breve>" }>`
+    : '';
   const prompt = `Azienda di ${opts.nome || 'un imprenditore'}, settore: ${opts.settore || 'non specificato'}.
 ${kbBlock}${opts.memoryBlock}
-
+${bookingBlock}
 TRASCRIZIONE della telefonata appena conclusa (Cliente = chi ha chiamato, Agente = l'assistente AI dell'azienda):
 ${opts.transcriptText}
 
 Aggiorna la MEMORIA della trattativa dopo questa chiamata. Rispondi SOLO con un oggetto JSON valido, senza markdown, in questo formato:
 {
   "progressSummary": "<riepilogo AGGIORNATO e conciso (max 4-5 frasi): cosa ha chiesto/detto il cliente, cosa è stato proposto, obiezioni emerse, impegni presi, e da dove ripartire la prossima volta>",
-  "dealStage": "<fase aggiornata: nuovo|contattato|in_conversazione|offerta_inviata|in_trattativa|appuntamento_fissato|vinto|perso>"
+  "dealStage": "<fase aggiornata: nuovo|contattato|in_conversazione|offerta_inviata|in_trattativa|appuntamento_fissato|vinto|perso>"${bookingField}
 }`;
 
   const model = process.env.ANTHROPIC_MODEL || 'claude-opus-4-8';
@@ -258,9 +315,15 @@ Aggiorna la MEMORIA della trattativa dopo questa chiamata. Rispondi SOLO con un 
       : '';
     const parsed = parseJson(text);
     if (!parsed || typeof parsed !== 'object') return null;
+    let booking: { startsAt: string; notes?: string } | null = null;
+    const b = (parsed as { booking?: unknown }).booking as { startsAt?: unknown; notes?: unknown } | null;
+    if (b && typeof b === 'object' && b.startsAt) {
+      booking = { startsAt: String(b.startsAt), notes: b.notes ? String(b.notes) : undefined };
+    }
     return {
       progressSummary: String(parsed.progressSummary || '').trim(),
       dealStage: String(parsed.dealStage || '').trim(),
+      booking,
     };
   } catch {
     return null;
