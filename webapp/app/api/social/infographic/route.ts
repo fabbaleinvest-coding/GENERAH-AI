@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { hfConfigured, hfSubmit, hfStatus, hfResultUrl, imageStep } from '@/lib/higgsfield';
+import { platformStatus } from '@/lib/higgsfieldOAuth';
+import { mcpGenerateImage, mcpWaitForUrl } from '@/lib/higgsfieldMcp';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,7 +38,14 @@ function buildPrompt(title: string, bullets: string[], imagePrompt: string): str
 }
 
 export async function POST(req: Request) {
-  if (!hfConfigured()) {
+  // Motore primario: MCP di piattaforma (Nano Banana Pro). Fallback: REST legacy.
+  let useMcp = false;
+  try {
+    useMcp = (await platformStatus()).connected;
+  } catch {
+    useMcp = false;
+  }
+  if (!useMcp && !hfConfigured()) {
     return NextResponse.json({ ok: false, configured: false, reason: 'higgsfield_not_configured' });
   }
 
@@ -55,6 +64,23 @@ export async function POST(req: Request) {
   }
 
   const prompt = buildPrompt(title, bullets, imagePrompt);
+
+  // ── Ramo MCP: Nano Banana Pro (infografica 3:4) ───────────────────────────
+  if (useMcp) {
+    try {
+      const g = await mcpGenerateImage(prompt, { aspect: '3:4' });
+      let imageUrl = g.url;
+      if (!imageUrl && g.jobId) imageUrl = await mcpWaitForUrl(g.jobId, { timeoutMs: 50000 });
+      if (!imageUrl) {
+        return NextResponse.json({ ok: false, configured: true, pending: true, requestId: g.jobId });
+      }
+      return NextResponse.json({ ok: true, configured: true, engine: 'mcp', imageUrl });
+    } catch (e) {
+      return NextResponse.json({ ok: false, configured: true, error: (e as Error).message });
+    }
+  }
+
+  // ── Ramo REST legacy ──────────────────────────────────────────────────────
   const step = imageStep(prompt, { aspect: '3:4', resolution: '1k' });
 
   try {

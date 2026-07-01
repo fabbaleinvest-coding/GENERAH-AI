@@ -80,6 +80,16 @@ export default function AdminPage() {
   // form manuale
   const [m, setM] = useState({ e164: '', phone_number_id: '', waba_id: '', display_name: '' });
 
+  // higgsfield (motore creativo di piattaforma)
+  const [hf, setHf] = useState<{
+    connected: boolean;
+    loading: boolean;
+    expiresAt?: string | null;
+    serviceRoleMissing?: boolean;
+    busy?: boolean;
+    error?: string;
+  }>({ connected: false, loading: true });
+
   const loadPool = useCallback(async () => {
     const { status, json } = await authFetch('/api/admin/whatsapp/pool');
     if (status === 401) return setPhase('unauth');
@@ -97,6 +107,61 @@ export default function AdminPage() {
   useEffect(() => {
     void loadPool();
   }, [loadPool]);
+
+  const loadHiggsfield = useCallback(async () => {
+    const { status, json } = await authFetch('/api/higgsfield/status');
+    if (status === 401) return setPhase('unauth');
+    if (status === 403) return setHf((s) => ({ ...s, loading: false }));
+    setHf({
+      connected: !!json.connected,
+      loading: false,
+      expiresAt: (json.expiresAt as string | null) ?? null,
+      serviceRoleMissing: !!json.serviceRoleMissing,
+    });
+  }, []);
+
+  useEffect(() => {
+    void loadHiggsfield();
+  }, [loadHiggsfield]);
+
+  async function connectHiggsfield() {
+    setHf((s) => ({ ...s, busy: true, error: undefined }));
+    const { json } = await authFetch('/api/higgsfield/oauth/start');
+    if (json.configured === false) {
+      setHf((s) => ({ ...s, busy: false, error: (json.hint as string) || 'Configurazione mancante.' }));
+      return;
+    }
+    const url = json.url as string | undefined;
+    if (!url) {
+      setHf((s) => ({ ...s, busy: false, error: (json.error as string) || 'Avvio autorizzazione non riuscito.' }));
+      return;
+    }
+    const popup = window.open(url, 'generah-higgsfield', 'width=560,height=760');
+    const onMsg = (ev: MessageEvent) => {
+      if (ev.origin !== window.location.origin) return;
+      const d = ev.data as { source?: string; ok?: boolean; message?: string };
+      if (d?.source !== 'generah-higgsfield-oauth') return;
+      window.removeEventListener('message', onMsg);
+      setHf((s) => ({ ...s, busy: false, error: d.ok ? undefined : d.message || 'Connessione non riuscita.' }));
+      void loadHiggsfield();
+    };
+    window.addEventListener('message', onMsg);
+    const iv = setInterval(() => {
+      if (popup?.closed) {
+        clearInterval(iv);
+        setHf((s) => (s.busy ? { ...s, busy: false } : s));
+        void loadHiggsfield();
+      }
+    }, 800);
+  }
+
+  async function disconnectHiggsfield() {
+    if (!window.confirm('Scollegare l’account Higgsfield di piattaforma? La generazione creativa si fermerà per tutti gli utenti finché non riconnetti.')) return;
+    setHf((s) => ({ ...s, busy: true }));
+    await authFetch('/api/higgsfield/status', { method: 'DELETE' });
+    setHf((s) => ({ ...s, busy: false, connected: false }));
+    void loadHiggsfield();
+  }
 
   async function searchGroups() {
     setBusy('search');
@@ -244,6 +309,65 @@ export default function AdminPage() {
             {msg}
           </div>
         )}
+
+        {/* Motore creativo di piattaforma · Higgsfield MCP (OAuth) */}
+        <section className="space-y-3">
+          <h2 className="font-display text-xl text-bone">Motore creativo · Higgsfield (MCP)</h2>
+          <p className="text-[0.84rem] text-mist">
+            Account Higgsfield <span className="text-bone">della piattaforma</span>: un unico collegamento che alimenta la
+            generazione creativa — <span className="text-bone">Nano Banana Pro</span> (immagini e infografiche),{' '}
+            <span className="text-bone">Kling 3.0 Turbo</span> (video ADS 9:16) e{' '}
+            <span className="text-bone">ElevenLabs “Roman”</span> (voiceover) — per <span className="text-bone">tutti</span> gli utenti a piano.
+            Sostituisce le API REST. Collega una sola volta; il token si rinnova da solo.
+          </p>
+
+          <div className="rounded-2xl border border-white/10 bg-ink/40 p-5">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-teal-400/12 text-teal-200">
+                <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <path d="M12 3v6m0 6v6M3 12h6m6 0h6" strokeLinecap="round" />
+                  <circle cx="12" cy="12" r="3.2" />
+                </svg>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[0.95rem] font-medium text-bone">Higgsfield · Client MCP OAuth</p>
+                <p className="truncate text-[0.8rem] text-mist/70">
+                  {hf.loading
+                    ? 'Verifica stato…'
+                    : hf.serviceRoleMissing
+                    ? 'Manca SUPABASE_SERVICE_ROLE_KEY (necessaria per la connessione di piattaforma).'
+                    : hf.connected
+                    ? `Collegato${hf.expiresAt ? ` · token valido fino al ${new Date(hf.expiresAt).toLocaleString('it-IT')}` : ''}`
+                    : 'Non collegato — la generazione userà il fallback REST (o resterà in dimostrativo).'}
+                </p>
+              </div>
+              {hf.loading ? (
+                <Spinner className="h-5 w-5 text-teal-300" />
+              ) : hf.connected ? (
+                <div className="flex items-center gap-2">
+                  <Badge tone="teal">Collegato</Badge>
+                  <Button size="sm" variant="ghost" onClick={disconnectHiggsfield} disabled={hf.busy}>
+                    Scollega
+                  </Button>
+                </div>
+              ) : (
+                <Button size="sm" onClick={connectHiggsfield} disabled={hf.busy || hf.serviceRoleMissing}>
+                  {hf.busy ? (
+                    <>
+                      <Spinner className="h-4 w-4" /> Connessione…
+                    </>
+                  ) : (
+                    'Connetti account Higgsfield'
+                  )}
+                </Button>
+              )}
+            </div>
+            {hf.error && <p className="mt-3 text-[0.82rem] text-coral">{hf.error}</p>}
+            <p className="mt-3 font-mono text-[0.62rem] uppercase tracking-[0.12em] text-mist/45">
+              OAuth 2.1 · PKCE · token cifrati (AES-256-GCM) · riservato all’admin
+            </p>
+          </div>
+        </section>
 
         {/* Pool */}
         <section className="space-y-3">
