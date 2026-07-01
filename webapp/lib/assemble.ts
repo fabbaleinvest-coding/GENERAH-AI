@@ -75,6 +75,18 @@ async function fetchViaProxy(
   remoteUrl: string,
   token: string
 ): Promise<{ data: Uint8Array; contentType: string | null }> {
+  // Voiceover OpenAI TTS arriva come data URL (data:audio/mpeg;base64,…):
+  // lo decodifichiamo qui, senza passare dal proxy same-origin.
+  if (remoteUrl.startsWith('data:')) {
+    const comma = remoteUrl.indexOf(',');
+    const meta = remoteUrl.slice(5, comma); // es. "audio/mpeg;base64"
+    const payload = remoteUrl.slice(comma + 1);
+    const contentType = meta.split(';')[0] || 'application/octet-stream';
+    const bin = meta.includes('base64') ? atob(payload) : decodeURIComponent(payload);
+    const data = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) data[i] = bin.charCodeAt(i);
+    return { data, contentType };
+  }
   const proxied = `/api/media/proxy?url=${encodeURIComponent(remoteUrl)}`;
   const res = await fetch(proxied, { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) throw new Error(`Proxy ${res.status}`);

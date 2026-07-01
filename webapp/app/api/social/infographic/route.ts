@@ -25,7 +25,7 @@ function buildPrompt(title: string, bullets: string[], imagePrompt: string): str
     imagePrompt ||
     'Modern, professional brand design with a refined color palette, strong contrast and generous whitespace.';
   return [
-    'Professional social-media infographic, vertical 4:5 format.',
+    'Professional social-media infographic, vertical 3:4 format.',
     heading,
     bulletBlock,
     style,
@@ -55,7 +55,7 @@ export async function POST(req: Request) {
   }
 
   const prompt = buildPrompt(title, bullets, imagePrompt);
-  const step = imageStep(prompt, { aspect: '4:5', size: '1080x1350' });
+  const step = imageStep(prompt, { aspect: '3:4', resolution: '1k' });
 
   try {
     const submitted = await hfSubmit(step.endpoint, step.input);

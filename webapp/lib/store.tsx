@@ -1972,7 +1972,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (voText) {
         onProgress?.('Genero il voiceover…');
         const vo = await submit({ step: 'voiceover', text: voText });
-        if (!vo.skipped && vo.requestId) audioUrl = await poll(vo.requestId, vo.url);
+        if (!vo.skipped && (vo.url || vo.requestId)) {
+          audioUrl = await poll(vo.requestId || '', vo.url);
+        }
       }
       const srt = scenesToSrt(
         scenes.map((s) => ({ durationSec: s.durationSec, voiceover: s.voiceover }))

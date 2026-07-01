@@ -6,9 +6,8 @@ import {
   hfResultUrl,
   imageStep,
   clipStep,
-  ttsStep,
-  ttsConfigured,
 } from '@/lib/higgsfield';
+import { synthesizeVoiceover, ttsConfigured } from '@/lib/tts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -74,14 +73,14 @@ export async function POST(req: Request) {
     }
     if (step === 'voiceover') {
       if (!ttsConfigured()) {
-        // Nessun endpoint TTS impostato: si procede senza voce (trasparente).
+        // Nessuna OPENAI_API_KEY: si procede senza voce (trasparente).
         return NextResponse.json({ skipped: true, reason: 'TTS non configurato' });
       }
       if (!body.text) return NextResponse.json({ error: 'text mancante' }, { status: 400 });
-      const s = ttsStep(body.text);
-      if (!s) return NextResponse.json({ skipped: true, reason: 'TTS non configurato' });
-      const r = await hfSubmit(s.endpoint, s.input);
-      return NextResponse.json({ requestId: r.request_id, status: r.status, url: hfResultUrl(r) });
+      // OpenAI TTS è sincrono: ritorna subito un data URL mp3 (nessun polling).
+      const dataUrl = await synthesizeVoiceover(body.text);
+      if (!dataUrl) return NextResponse.json({ skipped: true, reason: 'TTS non configurato' });
+      return NextResponse.json({ status: 'completed', url: dataUrl });
     }
     return NextResponse.json({ error: 'step non valido' }, { status: 400 });
   } catch (e) {
