@@ -2150,6 +2150,14 @@ function DashboardInner() {
   const [tab, setTab] = useState<Tab>('overview');
   const [topUp, setTopUp] = useState<MeterKey | null>(null);
 
+  // Apri la tab indicata via query (?tab=video), es. al ritorno dal consenso Google.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const t = new URLSearchParams(window.location.search).get('tab');
+    const valid: Tab[] = ['overview', 'leads', 'calendario', 'whatsapp', 'campaigns', 'social', 'video', 'kb', 'account'];
+    if (t && (valid as string[]).includes(t)) setTab(t as Tab);
+  }, []);
+
   return (
     <Container wide className="py-8">
       {/* tab nav */}

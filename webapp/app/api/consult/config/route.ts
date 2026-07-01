@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { userClient } from '@/lib/supabaseServer';
+import { googleConfigured } from '@/lib/google';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -66,6 +67,7 @@ export async function GET(req: Request) {
     calcomEventTypeId: p.calcom_event_type_id || '',
     calcomBookingUrl: p.calcom_booking_url || '',
     timezone: p.booking_timezone || 'Europe/Rome',
+    googleConfigured: googleConfigured(),
     baseUrl: base,
     consultUrl: slug && base ? `${base}/c/${slug}` : null,
   });

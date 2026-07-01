@@ -23,6 +23,7 @@ type Config = {
   calcomEventTypeId: string;
   calcomBookingUrl: string;
   timezone: string;
+  googleConfigured?: boolean;
   baseUrl: string;
   consultUrl: string | null;
 };
@@ -107,6 +108,36 @@ export default function VideoAvatarSettings() {
       alive = false;
     };
   }, []);
+
+  // Ritorno dal consenso Google (?google=connected|denied|error|…): mostra esito
+  // e ripulisci la query dall'URL.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const g = new URLSearchParams(window.location.search).get('google');
+    if (!g) return;
+    const map: Record<string, string> = {
+      connected: 'Google Calendar collegato ✓',
+      denied: 'Collegamento annullato.',
+      error: 'Errore nel collegamento a Google. Riprova.',
+      unavailable: 'Google Calendar non ancora configurato lato piattaforma.',
+      noauth: 'Sessione scaduta, riprova.',
+    };
+    setCalMsg(map[g] || null);
+    try {
+      window.history.replaceState({}, '', window.location.pathname);
+    } catch {
+      /* noop */
+    }
+  }, []);
+
+  async function connectGoogle() {
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    if (!token) {
+      setCalMsg('Sessione scaduta, ricarica la pagina.');
+      return;
+    }
+    window.location.href = `/api/consult/google/start?token=${encodeURIComponent(token)}`;
+  }
 
   async function saveConsult() {
     setSavingConsult(true);
@@ -310,21 +341,40 @@ export default function VideoAvatarSettings() {
           </div>
         </div>
 
-        {/* Google — istruzioni */}
+        {/* Google — collegamento OAuth */}
         <div className="mt-5 border-t border-white/8 pt-4">
           <p className="text-[0.86rem] font-medium text-bone">Google Calendar</p>
           <ol className="ml-4 mt-1 list-decimal space-y-1 text-[0.82rem] text-mist">
             <li>Se non hai un account Google, creane uno gratis su google.com.</li>
             <li>Premi «Collega Google Calendar», accedi e concedi l&apos;accesso al calendario.</li>
-            <li>Scegli il calendario (default: principale). Fatto.</li>
+            <li>Fatto: gli appuntamenti verranno creati sul tuo calendario principale.</li>
           </ol>
-          <p className="mt-2 text-[0.78rem] text-mist/60">
-            Il collegamento Google richiede la configurazione OAuth lato piattaforma (in arrivo). Nel frattempo usa cal.com,
-            che è già operativo.
-          </p>
-          <Button size="sm" variant="outline" className="mt-3" disabled title="Disponibile a breve">
-            Collega Google Calendar
-          </Button>
+          {cfg?.googleConfigured ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant={cfg?.calendarProvider === 'google' ? 'ghost' : 'outline'}
+                onClick={connectGoogle}
+              >
+                {cfg?.calendarProvider === 'google' ? 'Ricollega Google Calendar' : 'Collega Google Calendar'}
+              </Button>
+              {cfg?.calendarProvider === 'google' && (
+                <Button size="sm" variant="ghost" onClick={disconnectCal} disabled={savingCal}>
+                  Scollega
+                </Button>
+              )}
+            </div>
+          ) : (
+            <>
+              <p className="mt-2 text-[0.78rem] text-mist/60">
+                Il collegamento Google richiede la configurazione OAuth lato piattaforma. Nel frattempo usa cal.com, che è
+                già operativo.
+              </p>
+              <Button size="sm" variant="outline" className="mt-3" disabled title="Disponibile a breve">
+                Collega Google Calendar
+              </Button>
+            </>
+          )}
         </div>
       </div>
     </div>
