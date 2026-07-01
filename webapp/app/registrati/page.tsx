@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useStore } from '@/lib/store';
+import { supabase } from '@/lib/supabase';
+import { PROVINCE } from '@/lib/provinces';
 import { IMG } from '@/lib/images';
 import { AuthScreen } from '@/components/AuthScreen';
 import { Button, Field, SelectField, Eyebrow, Spinner } from '@/components/ui';
@@ -32,6 +34,7 @@ export default function RegistratiPage() {
   const [email, setEmail] = useState('');
   const [cellulare, setCellulare] = useState('');
   const [settore, setSettore] = useState(SETTORI[0]);
+  const [provincia, setProvincia] = useState('');
   const [password, setPassword] = useState('');
   const [conferma, setConferma] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +51,7 @@ export default function RegistratiPage() {
     if (!nome.trim() || !cognome.trim()) return setError('Inserisci nome e cognome.');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setError('Inserisci un indirizzo email valido.');
     if (cellulare.replace(/\D/g, '').length < 8) return setError('Inserisci un numero di cellulare valido.');
+    if (!provincia) return setError("Seleziona la provincia dell'attività.");
     if (password.length < 6) return setError('La password deve avere almeno 6 caratteri.');
     if (password !== conferma) return setError('Le due password non coincidono.');
 
@@ -58,6 +62,20 @@ export default function RegistratiPage() {
         setLoading(false);
         setError(res.error ?? 'Registrazione non riuscita.');
         return;
+      }
+      // Salva la provincia e assegna il numero (WhatsApp = voce) col prefisso
+      // locale corretto. Best-effort: se fallisce non blocca l'accesso al piano.
+      try {
+        const token = (await supabase.auth.getSession()).data.session?.access_token;
+        if (token) {
+          await fetch('/api/profile/provincia', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ provincia }),
+          });
+        }
+      } catch {
+        /* l'assegnazione del numero può essere completata più tardi */
       }
       router.replace('/piani');
     })();
@@ -109,6 +127,19 @@ export default function RegistratiPage() {
             {SETTORI.map((s) => (
               <option key={s} value={s}>
                 {s}
+              </option>
+            ))}
+          </SelectField>
+
+          <SelectField
+            label="Provincia dell'attività"
+            value={provincia}
+            onChange={(e) => setProvincia(e.target.value)}
+          >
+            <option value="">Seleziona la provincia…</option>
+            {PROVINCE.map((p) => (
+              <option key={p.sigla} value={p.nome}>
+                {p.nome} ({p.sigla})
               </option>
             ))}
           </SelectField>
