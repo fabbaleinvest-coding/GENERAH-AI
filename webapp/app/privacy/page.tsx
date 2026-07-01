@@ -8,7 +8,7 @@ import Link from 'next/link';
 export const metadata: Metadata = {
   title: 'Privacy Policy · GENERAH AI',
   description:
-    'How GENERAH AI collects, uses, stores, shares and protects personal data, including data obtained through Meta Platforms (Facebook, Instagram, WhatsApp and the Marketing API).',
+    'How GENERAH AI collects, uses, stores, shares and protects personal data, including data obtained through Meta Platforms (Facebook, Instagram, WhatsApp and the Marketing API) and Google APIs (Google Calendar).',
   robots: { index: true, follow: true },
 };
 
@@ -50,19 +50,20 @@ const TOC: { id: string; label: string }[] = [
   { id: 'data', label: '2 · Data we collect' },
   { id: 'use', label: '3 · How we use data' },
   { id: 'meta', label: '4 · Meta Platform data' },
-  { id: 'roles', label: '5 · Controller / processor' },
-  { id: 'legal-bases', label: '6 · Legal bases' },
-  { id: 'subprocessors', label: '7 · Service providers' },
-  { id: 'sharing', label: '8 · Sharing & disclosure' },
-  { id: 'transfers', label: '9 · International transfers' },
-  { id: 'retention', label: '10 · Retention' },
-  { id: 'security', label: '11 · Security' },
-  { id: 'rights', label: '12 · Your rights' },
-  { id: 'deletion', label: '13 · Data deletion' },
-  { id: 'cookies', label: '14 · Cookies' },
-  { id: 'children', label: '15 · Children' },
-  { id: 'changes', label: '16 · Changes' },
-  { id: 'contact', label: '17 · Contact' },
+  { id: 'google', label: '5 · Google Platform data' },
+  { id: 'roles', label: '6 · Controller / processor' },
+  { id: 'legal-bases', label: '7 · Legal bases' },
+  { id: 'subprocessors', label: '8 · Service providers' },
+  { id: 'sharing', label: '9 · Sharing & disclosure' },
+  { id: 'transfers', label: '10 · International transfers' },
+  { id: 'retention', label: '11 · Retention' },
+  { id: 'security', label: '12 · Security' },
+  { id: 'rights', label: '13 · Your rights' },
+  { id: 'deletion', label: '14 · Data deletion' },
+  { id: 'cookies', label: '15 · Cookies' },
+  { id: 'children', label: '16 · Children' },
+  { id: 'changes', label: '17 · Changes' },
+  { id: 'contact', label: '18 · Contact' },
 ];
 
 export default function PrivacyPage() {
@@ -93,7 +94,7 @@ export default function PrivacyPage() {
           This Privacy Policy explains how GENERAH AI (&ldquo;GENERAH&rdquo;, &ldquo;we&rdquo;,
           &ldquo;us&rdquo;) collects, uses, stores, shares and protects personal data when you use
           our platform, including data we access through Meta Platforms (Facebook, Instagram,
-          WhatsApp Business and the Meta Marketing API).
+          WhatsApp Business and the Meta Marketing API), and Google APIs (Google Calendar).
         </p>
         <p className="mt-4 font-mono text-xs text-mist/80">
           Effective date: {EFFECTIVE} · Last updated: {EFFECTIVE}
@@ -135,7 +136,7 @@ export default function PrivacyPage() {
               GENERAH is designed for businesses (&ldquo;Admins&rdquo;) that use our tools to run
               their own marketing, advertising and customer-relationship activities. Where we
               process personal data on behalf of an Admin (for example, the contacts and leads they
-              collect), the roles described in section 5 apply.
+              collect), the roles described in section 6 apply.
             </p>
           </Section>
 
@@ -231,7 +232,7 @@ export default function PrivacyPage() {
               </li>
             </ul>
             <p>
-              Access tokens and credentials are stored encrypted (see section 11) and are used only
+              Access tokens and credentials are stored encrypted (see section 12) and are used only
               to perform the actions you authorise. Our use of information received from Meta APIs
               adheres to the{' '}
               <a
@@ -251,11 +252,68 @@ export default function PrivacyPage() {
               >
                 Developer Policies
               </a>
-              . You can revoke access at any time (see section 13).
+              . You can revoke access at any time (see section 14).
             </p>
           </Section>
 
-          <Section id="roles" n="5" title="Controller and processor roles">
+          <Section id="google" n="5" title="Google Platform data">
+            <p>
+              With your explicit authorisation, when you connect Google Calendar GENERAH requests the
+              Google Calendar scope{' '}
+              <span className="whitespace-nowrap font-mono text-sm text-bone">
+                .../auth/calendar.events
+              </span>{' '}
+              and accesses your Google account data only to deliver the appointment-booking feature.
+            </p>
+            <ul className="ml-1 space-y-2">
+              <li>
+                <span className="text-bone">What we access and why.</span> We use this scope solely to
+                create and manage calendar events on your behalf &mdash; the appointments that the AI
+                video-avatar, voice agent and WhatsApp assistant schedule for you. We do not read,
+                display, sell or store the contents of your existing calendar, and we do not use this
+                access for any other purpose.
+              </li>
+              <li>
+                <span className="text-bone">What we store.</span> A Google OAuth refresh token,
+                encrypted at rest (see section 12), used only to obtain short-lived access tokens to
+                create those events, together with the target calendar identifier (by default, your
+                primary calendar).
+              </li>
+              <li>
+                <span className="text-bone">No transfer for other uses.</span> We do not sell or share
+                Google user data, do not use it for advertising, and do not use it to train
+                generalised or third-party AI models.
+              </li>
+            </ul>
+            <p>
+              GENERAH&rsquo;s use and transfer of information received from Google APIs adheres to the{' '}
+              <a
+                href="https://developers.google.com/terms/api-services-user-data-policy"
+                className="text-teal-300 hover:underline"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Google API Services User Data Policy
+              </a>
+              , including the Limited Use requirements.
+            </p>
+            <p>
+              You can revoke access at any time by disconnecting Google Calendar from the GENERAH
+              admin area &mdash; which deletes the stored refresh token &mdash; or from your Google
+              Account at{' '}
+              <a
+                href="https://myaccount.google.com/permissions"
+                className="text-teal-300 hover:underline"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                myaccount.google.com/permissions
+              </a>
+              .
+            </p>
+          </Section>
+
+          <Section id="roles" n="6" title="Controller and processor roles">
             <p>
               For your account data (registration, billing, usage), GENERAH acts as the{' '}
               <span className="text-bone">data controller</span>.
@@ -270,7 +328,7 @@ export default function PrivacyPage() {
             </p>
           </Section>
 
-          <Section id="legal-bases" n="6" title="Legal bases (GDPR)">
+          <Section id="legal-bases" n="7" title="Legal bases (GDPR)">
             <p>Where the GDPR applies, we rely on:</p>
             <ul className="ml-1 space-y-2">
               <li>
@@ -290,7 +348,7 @@ export default function PrivacyPage() {
             </ul>
           </Section>
 
-          <Section id="subprocessors" n="7" title="Service providers (sub-processors)">
+          <Section id="subprocessors" n="8" title="Service providers (sub-processors)">
             <p>
               We rely on trusted providers who process data on our behalf, under contractual data
               protection obligations, only to deliver the service:
@@ -331,7 +389,7 @@ export default function PrivacyPage() {
             </p>
           </Section>
 
-          <Section id="sharing" n="8" title="Sharing and disclosure">
+          <Section id="sharing" n="9" title="Sharing and disclosure">
             <p>
               We do not sell personal data. We share data only with the service providers listed
               above, with the platforms you explicitly connect (to perform the actions you
@@ -339,7 +397,7 @@ export default function PrivacyPage() {
             </p>
           </Section>
 
-          <Section id="transfers" n="9" title="International transfers">
+          <Section id="transfers" n="10" title="International transfers">
             <p>
               Some providers are located outside the EEA (for example, in the United States). Where
               personal data is transferred internationally, we rely on appropriate safeguards such as
@@ -347,7 +405,7 @@ export default function PrivacyPage() {
             </p>
           </Section>
 
-          <Section id="retention" n="10" title="Data retention">
+          <Section id="retention" n="11" title="Data retention">
             <p>
               We keep personal data only for as long as needed to provide the service and for the
               purposes described here, then delete or anonymise it. Account data is retained while
@@ -358,7 +416,7 @@ export default function PrivacyPage() {
             </p>
           </Section>
 
-          <Section id="security" n="11" title="Security">
+          <Section id="security" n="12" title="Security">
             <p>
               We apply technical and organisational measures appropriate to the risk. Data is
               encrypted in transit (TLS). Third-party access tokens and secrets are encrypted at rest
@@ -369,7 +427,7 @@ export default function PrivacyPage() {
             </p>
           </Section>
 
-          <Section id="rights" n="12" title="Your rights">
+          <Section id="rights" n="13" title="Your rights">
             <p>
               Subject to applicable law, you may have the right to access, rectify, erase, restrict
               or object to processing, to data portability, and to withdraw consent at any time. To
@@ -384,10 +442,10 @@ export default function PrivacyPage() {
             </p>
           </Section>
 
-          <Section id="deletion" n="13" title="Data deletion &amp; revoking access">
+          <Section id="deletion" n="14" title="Data deletion &amp; revoking access">
             <p>
               You can disconnect any connected platform (including Meta, Instagram, Facebook,
-              WhatsApp and Metricool) at any time from within the GENERAH admin area; disconnecting
+              WhatsApp, Metricool and Google Calendar) at any time from within the GENERAH admin area; disconnecting
               deletes the stored access tokens for that integration.
             </p>
             <p>
@@ -403,7 +461,7 @@ export default function PrivacyPage() {
             </p>
           </Section>
 
-          <Section id="cookies" n="14" title="Cookies">
+          <Section id="cookies" n="15" title="Cookies">
             <p>
               We use strictly necessary cookies and similar technologies to keep you signed in and to
               secure the application. We do not use these for third-party advertising. You can control
@@ -411,7 +469,7 @@ export default function PrivacyPage() {
             </p>
           </Section>
 
-          <Section id="children" n="15" title="Children">
+          <Section id="children" n="16" title="Children">
             <p>
               GENERAH is intended for businesses and is not directed to individuals under 18. We do
               not knowingly collect personal data from minors. If you believe a minor has provided us
@@ -419,7 +477,7 @@ export default function PrivacyPage() {
             </p>
           </Section>
 
-          <Section id="changes" n="16" title="Changes to this policy">
+          <Section id="changes" n="17" title="Changes to this policy">
             <p>
               We may update this policy from time to time. We will post the updated version here and
               revise the &ldquo;Last updated&rdquo; date. Material changes will be communicated
@@ -427,7 +485,7 @@ export default function PrivacyPage() {
             </p>
           </Section>
 
-          <Section id="contact" n="17" title="Contact">
+          <Section id="contact" n="18" title="Contact">
             <p>
               For any question about this policy or your personal data, contact{' '}
               <a href={`mailto:${CONTACT}`} className="text-teal-300 hover:underline">
